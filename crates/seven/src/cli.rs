@@ -275,7 +275,8 @@ fn unit_name(def: CellDef, i: usize) -> String {
 async fn up(def: CellDef, args: &[String]) -> Result<(), String> {
     let dry = args.iter().any(|a| a == "--dry-run");
     let (lock_path, mut l) = lock()?;
-    let repo_dir = lock_path.parent().unwrap().to_path_buf();
+    // the repository up pins is the one it runs in (the lock may live elsewhere, e.g. a sim-only lock)
+    let repo_dir = flag(args, "--repo").map(PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| lock_path.parent().unwrap().to_path_buf()));
     let ce = which("ce").ok_or("`ce` is not on PATH: up drives cell.build and cell.install through it")?;
     let rev = sh(std::process::Command::new("git").arg("-C").arg(&repo_dir).args(["rev-parse", "HEAD"]))?;
     let dirty = sh(std::process::Command::new("git").arg("-C").arg(&repo_dir).args(["status", "--porcelain", "--untracked-files=no"]))?;
@@ -341,7 +342,16 @@ async fn up(def: CellDef, args: &[String]) -> Result<(), String> {
                 continue;
             }
             let req = json!({ "api": l.cell.api, "schema": 0, "source": { "Commit": { "repo": l.cell.repo, "rev": rev } } });
-            let out = sh(std::process::Command::new(&ce).args(["call", "cell.install.Install"]).arg(req.to_string()).args(["--on", &r.node, "--json"]))?;
+            let out = match sh(std::process::Command::new(&ce).args(["call", "cell.install.Install"]).arg(req.to_string()).args(["--on", &r.node, "--json"])) {
+                Ok(o) => o,
+                Err(e) => {
+                    // a refused node is reported, not fatal: the replicas that did start still elect if they are a majority
+                    let why = e.rsplit("Error: ").next().unwrap_or(&e).trim().to_string();
+                    eprintln!("          refused: {why}");
+                    steps.push(json!({ "step": "install", "replica": i, "node": r.node, "refused": why }));
+                    continue;
+                }
+            };
             let job: Value = serde_json::from_str(&out).unwrap_or(json!(out));
             let id = job.get("Ok").cloned().unwrap_or(job.clone());
             let mut state = Value::Null;
