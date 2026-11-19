@@ -513,8 +513,9 @@ async fn prove(def: CellDef, args: &[String]) -> Result<(), String> {
         for a in &addrs {
             let d = request(a, &admin_msg(def, &h, Msg::Dump { auth: dummy_auth(&h) }), Duration::from_secs(3)).await.unwrap_or_else(|e| json!({ "down": e }));
             let rows: Vec<&Value> = d["ledger"].as_array().map(|v| v.iter().filter(|r| r["key"] == json!(kb)).collect()).unwrap_or_default();
+            let receipts_b = d["audit"].as_array().map(|v| v.iter().filter(|r| r["key"] == json!(kb) && r["kind"] == json!("twin.put")).count()).unwrap_or(0);
             per_replica.push(json!({
-                "addr": a, "up": d.get("down").is_none(), "charges_for_b": rows.len(), "charge_ids": rows.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
+                "addr": a, "up": d.get("down").is_none(), "charges_for_b": rows.len(), "audit_receipts_for_b": receipts_b, "charge_ids": rows.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
                 "done_b": d["done"].get(&kb).is_some(), "audit_rows": d["audit"].as_array().map(|a| a.len()), "audit_chain_ok": d["audit_chain_ok"],
                 "audit_head": d["audit"].as_array().and_then(|a| a.last()).map(|r| r["hash"].clone()), "ledger_rows": d["ledger"].as_array().map(|a| a.len()),
             }));
@@ -527,7 +528,7 @@ async fn prove(def: CellDef, args: &[String]) -> Result<(), String> {
     }
     let up: Vec<&Value> = per_replica.iter().filter(|r| r["up"] == json!(true)).collect();
     let exactly_once = up.len() >= 2
-        && up.iter().all(|r| r["charges_for_b"] == json!(1) && r["charge_ids"][0] == charge_b["id"] && r["done_b"] == json!(true))
+        && up.iter().all(|r| r["charges_for_b"] == json!(1) && r["audit_receipts_for_b"] == json!(1) && r["charge_ids"][0] == charge_b["id"] && r["done_b"] == json!(true))
         && again["replayed"] == json!(true)
         && again["out"]["charge"]["id"] == charge_b["id"];
     let heads_equal = up.windows(2).all(|w| w[0]["audit_head"] == w[1]["audit_head"]);

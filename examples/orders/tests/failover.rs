@@ -72,7 +72,7 @@ fn kill_the_leader_mid_order_and_the_order_completes_exactly_once() {
     assert!(b["resumed_steps"].as_u64().unwrap() >= 1, "the new leader must resume a committed charge: {report:#}");
     assert_eq!(report["denied"]["refused"], Value::Bool(true));
     let replicas = report["replicas_after"].as_array().unwrap();
-    assert!(replicas.iter().all(|r| r["charges_for_b"] == 1), "{report:#}");
+    assert!(replicas.iter().all(|r| r["charges_for_b"] == 1 && r["audit_receipts_for_b"] == 1), "{report:#}");
     assert_eq!(report["pass"], Value::Bool(true));
     let _ = std::fs::remove_dir_all(&dir);
 }

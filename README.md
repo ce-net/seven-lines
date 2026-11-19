@@ -77,7 +77,7 @@ Page: <https://ce-net.github.io/seven-lines/>. Raw files are in [`docs/runs/`](d
 | exactly once | 1 charge row for B on each of the 3 replicas, with the same id. The killed replica was restarted by systemd and caught up. Sending the same request again returned `replayed: true` with the same charge. The audit chains verify, and the audit heads are equal on all 3 |
 
 Where the run happened: all three replicas were on one server, one replica plus two simulated nodes on other ports.
-The replica on the second machine is in `cell.lock`, but `cell.install` there refused the install
+The replica on the second machine is in the deployment lock (kept outside the repository, named by `SEVEN_LOCK`), but `cell.install` there refused the install
 (`Right("cell.install:install")`). The grant is requested and the proof runs again when it arrives.
 
 ## Not done yet

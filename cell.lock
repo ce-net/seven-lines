@@ -1,5 +1,7 @@
 # Where the replicas run and which key roots the cell's capabilities. The code names no machine; this file does.
-# up writes [pin]. root is the public half of the owner key; the seed never enters this repo.
+# This committed copy is the loopback layout (three replicas on this machine). A deployment keeps its own lock,
+# with mesh node names and addresses, outside the repository and points SEVEN_LOCK at it.
+# up writes [pin]. root is the public half of the owner key (`orders keygen`); the seed never enters this repo.
 [cell]
 name = "orders"
 api = "seven.orders"
@@ -7,14 +9,13 @@ repo = "seven-lines"
 root = "c47dd74cbcaaa4239a346d27f50aa887f676735f59924fe84b7f97eae53a9bfb"
 
 [[replica]]
-node = "foreman-ops-1"
-addr = "10.77.199.157:7461"
+node = "local"
+addr = "127.0.0.1:7461"
 
 [[replica]]
-node = "leif-desk"
-addr = "10.77.76.155:7461"
+node = "local"
+addr = "127.0.0.1:7462"
 
 [[replica]]
-node = "foreman-ops-1"
-addr = "10.77.199.157:7462"
-sim = true
+node = "local"
+addr = "127.0.0.1:7463"
