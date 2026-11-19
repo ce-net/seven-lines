@@ -1,0 +1,17 @@
+[package]
+name = "seven-macros"
+description = "#[cell], #[record] and #[op]: the attribute macros of the seven-line cell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+proc-macro-crate = "3"

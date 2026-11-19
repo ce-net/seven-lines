@@ -1,0 +1,18 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build-test-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: the seven lines are seven lines
+        run: test "$(wc -l < examples/orders/src/main.rs)" -eq 7
+      - name: build (fresh clone, public dependencies only)
+        run: cargo build --workspace --release --locked
+      - name: unit, in-process replicas, three processes with the leader killed mid-order
+        run: cargo test --workspace --release --locked
+      - name: describe the cell the seven lines declare
+        run: target/release/orders describe

@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/seven", "crates/seven-macros", "examples/orders"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Leif Rydenfalk"]
+repository = "https://github.com/ce-net/seven-lines"
+
+[workspace.dependencies]
+# live-shop (public, Apache-2.0): the quorum log with epoch fencing and the ed25519 capability chains
+shop-replog = { git = "https://github.com/ce-net/live-shop", rev = "30f0afa84711167b47f71c40a79931f4d2357e54" }
+shop-chain = { git = "https://github.com/ce-net/live-shop", rev = "30f0afa84711167b47f71c40a79931f4d2357e54" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+debug = 0
+codegen-units = 16

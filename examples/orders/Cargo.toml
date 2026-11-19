@@ -1,0 +1,15 @@
+[package]
+name = "orders"
+description = "The seven-line orders cell: 3 replicas, test payments, an AI note, a twin write with an audit receipt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# renamed so line 1 reads #[ce::cell(..)]
+ce = { package = "seven", path = "../../crates/seven" }
+
+[dev-dependencies]
+serde_json.workspace = true

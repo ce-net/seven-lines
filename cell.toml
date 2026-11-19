@@ -1,0 +1,12 @@
+# The orders cell for a node's door and cell.install (Install{Commit{repo = "seven-lines", rev}}).
+[cell]
+api = "seven.orders"
+kind = "cell"
+crate = "orders"
+args = ["serve"]
+owner = "foreman/lead"
+replicas = 3
+depends_on = []
+
+[limits]
+disk_bytes = "256M"
