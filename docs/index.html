@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#070807">
+<title>Seven lines</title>
+<meta name="description" content="A replicated, capability-gated orders cell with test payments, an AI note and an audited twin, in seven lines of Rust, and the recorded run that kills its leader mid-order.">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script>try{var t=localStorage.getItem("ce-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<style>
+  body{margin:0;background:var(--bg,#070807);color:var(--ink,#f2f3ef);font-family:Geist,system-ui,sans-serif}
+  main{max-width:980px;margin:0 auto;padding:56px 16px 80px}
+  header.top{display:flex;justify-content:space-between;align-items:center;max-width:980px;margin:0 auto;padding:16px}
+  .brand{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase}
+  pre.code{font-family:"JetBrains Mono",monospace;font-size:13px;line-height:1.75;margin:0;padding:18px 18px 18px 0;overflow-x:auto;counter-reset:l}
+  pre.code span{display:block;white-space:pre;counter-increment:l}
+  pre.code span::before{content:counter(l);display:inline-block;width:38px;text-align:right;margin-right:16px;color:var(--faint,#5d625b)}
+  section{margin-top:28px}
+  h2{font-family:Geist,sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted,#8a8f87);font-weight:500;margin:0 0 10px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .rows{padding:4px 16px}
+  .rows div{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.07);font-size:13px}
+  .rows div:last-child{border-bottom:0}
+  .rows b{font-weight:500}
+  .rows span{font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;color:var(--muted,#8a8f87);text-align:right;word-break:break-all}
+  .note{font-size:14px;line-height:1.6;color:var(--muted,#8a8f87);max-width:70ch}
+  .ok{color:#9bd16b}.bad{color:#ef4444}
+  table{width:100%;border-collapse:collapse;font-family:"JetBrains Mono",monospace;font-size:12px;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.07)}
+  th{font-family:Geist,sans-serif;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted,#8a8f87);font-weight:500}
+  .scroll{overflow-x:auto}
+  a{color:var(--acc,#f5a524)}
+  @media (max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}pre.code{font-size:11px}main{padding-top:24px}}
+</style>
+</head>
+<body>
+<header class="top"><span class="brand">ce / seven lines</span>
+  <nav class="btns glass"><a class="btn quiet" href="https://github.com/ce-net/seven-lines">Source</a>
+  <button class="btn" id="theme" type="button">Light</button></nav></header>
+<main>
+  <div class="crumb">ce / <b>Cells</b> / Seven lines</div>
+  <h1 class="display over">An enterprise system in seven lines.</h1>
+  <p class="note">Three replicas with a majority-elected leader, an op only a capability chain can call, a test-mode charge,
+    an AI note through the owner's subscription gateway, and a twin write with a hash-chained audit row. The file below is
+    the whole program; <code>fn main</code> is generated.</p>
+
+  <section class="glass ticks"><pre class="code" aria-label="examples/orders/src/main.rs"><span>#[ce::cell(name = "orders", version = 1, replicas = 3)]</span><span>#[record(cell = orders)] struct Order { sku: Sku, qty: u32, paid: Money }</span><span>#[op(cap = "orders.place")] async fn place(cx: Cx, o: Order) -> Result&lt;Receipt&gt; {</span><span>    let charge = cx.pay().charge(o.paid).await?;</span><span>    let note = cx.ai().ask(Quota::agent(), summary(&amp;o)).await?;</span><span>    cx.twin().put(&amp;o).audit(&amp;charge).await?;</span><span>    Ok(Receipt::new(charge, note)) }</span></pre></section>
+
+  <section><h2 id="run-title">Recorded run</h2>
+    <div class="stats" id="stats"></div></section>
+
+  <section><h2>Order B: the leader dies mid-order</h2><div class="glass rows" id="orderb"></div></section>
+  <section><h2>Every replica after the run</h2><div class="glass scroll"><table id="reps"><thead><tr><th>Replica</th><th>Charges for B</th><th>Charge id</th><th>Ledger rows</th><th>Audit rows</th><th>Audit chain</th><th>Audit head</th></tr></thead><tbody></tbody></table></div></section>
+  <section><h2>Order A and the refusal</h2><div class="glass rows" id="ordera"></div></section>
+  <section><h2>Deploy (up)</h2><div class="glass rows" id="up"></div></section>
+  <p class="note" style="margin-top:28px">Raw files: <a href="runs/2026-11-19-ops1-prove.json">prove.json</a> ·
+    <a href="runs/2026-11-19-ops1-up.json">up.json</a> · <a href="runs/2026-11-19-ops1-cell.lock">cell.lock</a>.
+    This run had all three replicas on one server (one replica plus two simulated nodes), because the second
+    machine's install grant was still pending. Payments are test mode only.</p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const row = (k, v) => `<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`;
+const stat = (label, num, unit, sub, feat) =>
+  `<div class="glass stat${feat ? " ticks" : ""}"><div class="label"><i${feat ? "" : ' class="g"'}></i>${esc(label)}</div>` +
+  `<div class="num${feat ? " acc" : ""}">${esc(num)}<small>${esc(unit)}</small></div><div class="sub">${esc(sub)}</div></div>`;
+const money = (m) => `${(m.minor / 100).toFixed(2)} ${m.cur}`;
+Promise.all([fetch("runs/2026-11-19-ops1-prove.json").then((r) => r.json()), fetch("runs/2026-11-19-ops1-up.json").then((r) => r.json())])
+  .then(([p, u]) => {
+    const b = p.order_b, reps = p.replicas_after;
+    $("run-title").textContent = `Recorded run · ${new Date(p.started * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    $("stats").innerHTML =
+      stat("Failover", b.failover_ms, " ms", "kill to a new ready leader", true) +
+      stat("Charges for B", reps.map((r) => r.charges_for_b).join(" / "), "", "one row on each replica") +
+      stat("Order B", (b.order_ms / 1000).toFixed(1), " s", `${b.client_tries} client tries`) +
+      stat("Proof", p.pass ? "Pass" : "Fail", "", p.exactly_once ? "exactly once" : "not exactly once");
+    const r = b.receipt;
+    $("orderb").innerHTML =
+      row("Kill", b.kill) + row("Killed leader (term)", `${b.killed.addr} (${b.killed.term})`) +
+      row("New leader (term)", `${b.new_leader.addr} (${b.new_leader.term})`) +
+      row("Steps the new leader found committed", b.resumed_steps) +
+      row("Charge", `${r.charge.id} · ${money(r.charge.amount)} · ${r.charge.mode}`) +
+      row("AI note", `${r.note.text} (${r.note.vendor} ${r.note.model}, ${r.note.ms} ms)`) +
+      row("Same request again", `replayed ${b.retry_replayed}, charge ${b.retry_charge_id}`);
+    $("reps").querySelector("tbody").innerHTML = reps.map((x) =>
+      `<tr><td>${esc(x.addr)}</td><td class="${x.charges_for_b === 1 ? "ok" : "bad"}">${x.charges_for_b}</td><td>${esc(x.charge_ids[0])}</td>` +
+      `<td>${x.ledger_rows}</td><td>${x.audit_rows}</td><td class="${x.audit_chain_ok ? "ok" : "bad"}">${x.audit_chain_ok ? "verifies" : "broken"}</td>` +
+      `<td>${esc(String(x.audit_head).slice(0, 16))}</td></tr>`).join("");
+    const a = p.order_a.receipt;
+    $("ordera").innerHTML = row("Order A", `${p.order_a.ms} ms · ${a.charge.id} · ${money(a.charge.amount)}`) +
+      row("AI note", `${a.note.text} (${a.note.vendor}, asks left today ${a.note.asks_left})`) +
+      row("Chain without orders:place", p.denied.refused ? "refused, audited" : "accepted (fail)");
+    $("up").innerHTML = u.steps.map((s) => row(s.step, s.step === "build" ? `rev ${s.rev.slice(0, 12)} · ${s.artifacts} artifact · ${(s.ms / 1000).toFixed(0)} s`
+      : s.step === "start" ? `replica ${s.replica} · ${s.bin_sha256.slice(0, 16)}` : s.step === "replicate" ? `leader ${s.leader}, ${s.joined} joined` : JSON.stringify(s))).join("");
+  })
+  .catch((e) => { $("stats").innerHTML = `<p class="note">Could not load the run: ${esc(e)}</p>`; });
+$("theme").addEventListener("click", () => {
+  const light = document.documentElement.getAttribute("data-theme") !== "light";
+  if (light) document.documentElement.setAttribute("data-theme", "light"); else document.documentElement.removeAttribute("data-theme");
+  $("theme").textContent = light ? "Dark" : "Light";
+  try { localStorage.setItem("ce-theme", light ? "light" : ""); } catch (e) {}
+});
+</script>
+</body>
+</html>

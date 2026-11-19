@@ -1,0 +1,143 @@
+{
+  "audit_heads_equal": true,
+  "cell": "orders",
+  "denied": {
+    "refused": true,
+    "why": "{\"Denied\":\"orders:place: chain does not hold orders:place\"}"
+  },
+  "exactly_once": true,
+  "leader_before": {
+    "addr": "ops-1/r0",
+    "node": "ops-1",
+    "term": 67
+  },
+  "order_a": {
+    "key": "A-1795081560",
+    "ms": 4938,
+    "receipt": {
+      "charge": {
+        "amount": {
+          "cur": "SEK",
+          "minor": 249900
+        },
+        "id": "ch_test_712357908ceef906",
+        "key": "A-1795081560",
+        "log_idx": 3,
+        "mode": "Test",
+        "seq": 1
+      },
+      "note": {
+        "asks_left": 19,
+        "bucket": "sub.gateway:claude / agent:489ab63b8aba95ac",
+        "device": "ops-1",
+        "model": "claude-haiku-5-5",
+        "ms": 4874,
+        "text": "Shop owner: New order for 1 × TENT-2P, paid 2,499.00 SEK (249900 minor units).",
+        "vendor": "claude"
+      }
+    }
+  },
+  "order_b": {
+    "charged_before_kill": true,
+    "client_tries": 27,
+    "failover_ms": 758,
+    "key": "B-1795081560",
+    "kill": "external SIGKILL of the leader process once its charge step committed",
+    "killed": {
+      "addr": "ops-1/r0",
+      "node": "ops-1",
+      "term": 67
+    },
+    "new_leader": {
+      "addr": "ops-1/r2 (sim)",
+      "node": "ops-1",
+      "term": 68
+    },
+    "order_ms": 5283,
+    "receipt": {
+      "charge": {
+        "amount": {
+          "cur": "SEK",
+          "minor": 249900
+        },
+        "id": "ch_test_9638863632ae1091",
+        "key": "B-1795081560",
+        "log_idx": 7,
+        "mode": "Test",
+        "seq": 2
+      },
+      "note": {
+        "asks_left": 18,
+        "bucket": "sub.gateway:claude / agent:489ab63b8aba95ac",
+        "device": "ops-1",
+        "model": "claude-haiku-5-5",
+        "ms": 4362,
+        "text": "Order alert: 1× TENT-2P (2-person tent) received, paid 2,499.00 SEK.",
+        "vendor": "claude"
+      }
+    },
+    "resumed_steps": 1,
+    "retry_charge_id": "ch_test_9638863632ae1091",
+    "retry_replayed": true
+  },
+  "pass": true,
+  "replicas": [
+    {
+      "addr": "ops-1/r0",
+      "node": "ops-1",
+      "sim": false
+    },
+    {
+      "addr": "ops-1/r1 (sim)",
+      "node": "ops-1",
+      "sim": true
+    },
+    {
+      "addr": "ops-1/r2 (sim)",
+      "node": "ops-1",
+      "sim": true
+    }
+  ],
+  "replicas_after": [
+    {
+      "addr": "ops-1/r0",
+      "audit_chain_ok": true,
+      "audit_head": "76bc0e550121bb806b5c3a649346dbd42256c76b4cf0b6c788a593253d40bddb",
+      "audit_rows": 3,
+      "charge_ids": [
+        "ch_test_9638863632ae1091"
+      ],
+      "charges_for_b": 1,
+      "done_b": true,
+      "ledger_rows": 2,
+      "up": true
+    },
+    {
+      "addr": "ops-1/r1 (sim)",
+      "audit_chain_ok": true,
+      "audit_head": "76bc0e550121bb806b5c3a649346dbd42256c76b4cf0b6c788a593253d40bddb",
+      "audit_rows": 3,
+      "charge_ids": [
+        "ch_test_9638863632ae1091"
+      ],
+      "charges_for_b": 1,
+      "done_b": true,
+      "ledger_rows": 2,
+      "up": true
+    },
+    {
+      "addr": "ops-1/r2 (sim)",
+      "audit_chain_ok": true,
+      "audit_head": "76bc0e550121bb806b5c3a649346dbd42256c76b4cf0b6c788a593253d40bddb",
+      "audit_rows": 3,
+      "charge_ids": [
+        "ch_test_9638863632ae1091"
+      ],
+      "charges_for_b": 1,
+      "done_b": true,
+      "ledger_rows": 2,
+      "up": true
+    }
+  ],
+  "started": 1795081560
+}

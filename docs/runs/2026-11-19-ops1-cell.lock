@@ -1,0 +1,30 @@
+# written by `<cell> up`; replicas and the root key are yours to edit
+[cell]
+name = "orders"
+root = "c47dd74cbcaaa4239a346d27f50aa887f676735f59924fe84b7f97eae53a9bfb"
+repo = "seven-lines"
+api = "seven.orders"
+
+[[replica]]
+node = "ops-1"
+addr = "ops-1/r0"
+sim = false
+
+[[replica]]
+node = "ops-1"
+addr = "ops-1/r1 (sim)"
+sim = true
+
+[[replica]]
+node = "ops-1"
+addr = "ops-1/r2 (sim)"
+sim = true
+
+[pin]
+rev = "2b8c037ea5a3a280b01ee95aecfb6583ffc70615"
+at = "1795081543"
+
+[[pin.artifacts]]
+target = "aarch64-unknown-linux-gnu"
+bin = "orders"
+sha256 = "43fb8e64a196ea615eb86a52336fdd77efcd7b51a92d7f2db3b9e7147eb5efec"
