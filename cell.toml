@@ -10,3 +10,16 @@ depends_on = []
 
 [limits]
 disk_bytes = "256M"
+
+[stamp]
+id = "cell:seven.orders"
+kind = "cell"
+path = "cell.toml"
+updated_at = 2026-11-19T09:47:42Z
+version = "0.1.0"
+access = "public"
+canonical_of = []
+duplicate_of = ""
+owner = "foreman/lead"
+source_of_truth = "https://github.com/ce-net/seven-lines"
+stale_after = 180
