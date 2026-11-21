@@ -10,9 +10,15 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage: <cell> <command>
   serve [--me N] [--dir D]        run one replica (from cell.lock)
-  call <op> <json> [--key K] [--grant]
+  call <op> <json> [--key K] [--grant | --grant-file F]
                                   call an op at the leader (signed with SEVEN_OWNER_SEED, or SEVEN_RIGHTS narrower);
-                                  --grant: the owner also signs a one-use grant for this exact call (grant = Passkey ops)
+                                  --grant: the owner also signs a one-use grant for this exact call (grant = Passkey ops);
+                                  --grant-file: the grant a card's answer carried (from `grant`); without either, a
+                                  Passkey op answers NeedsGrant {cell, op, caller, input_hash, summary}
+  grant <needs-grant json> [--ttl S]
+                                  the owner's tap: sign a one-use grant for exactly that NeedsGrant with the device key
+                                  in SEVEN_DEVICE_SEED (else SEVEN_OWNER_SEED); prints the grant JSON
+  skill                           SKILL.md for this cell, from describe (up writes it next to cell.lock)
   status | dump                   every replica's role, term, ledger, audit head | the applied state
   crash [--after N]               chaos: SIGKILL the leader now, or right after step N of its next order
   describe                        ops, caps, records and the skill text
@@ -43,6 +49,11 @@ pub fn main(def: CellDef) -> i32 {
                 println!("{}", serde_json::to_string_pretty(&describe(def)).unwrap());
                 Ok(())
             }
+            Some("skill") => {
+                print!("{}", skill_md(def));
+                Ok(())
+            }
+            Some("grant") => grant_cmd(&args),
             Some("keygen") => {
                 let id = Identity::generate();
                 println!("{{\"seed\":\"{}\",\"public\":\"{}\"}}", hex::encode(id.seed()), id.public_hex());
@@ -73,10 +84,66 @@ fn lock() -> Result<(PathBuf, Lock), String> {
 }
 
 pub fn describe(def: CellDef) -> Value {
-    let ops: Vec<Value> = crate::ops().iter().map(|o| json!({ "op": o.name, "cap": o.cap, "right": right_of(o.cap), "input": o.input, "grant": o.grant })).collect();
+    let ops: Vec<Value> =
+        crate::ops().iter().map(|o| json!({ "op": o.name, "cap": o.cap, "right": right_of(o.cap), "input": o.input, "output": inner(o.output), "grant": o.grant })).collect();
     let recs: Vec<Value> = crate::records().iter().map(|r| json!({ "record": r.name, "cell": r.cell, "fields": r.fields })).collect();
     json!({ "cell": def.name, "version": def.version, "replicas": def.replicas, "home": def.home, "skill": def.skill, "ops": ops, "records": recs,
             "admin_rights": [format!("{}:read", def.name), format!("{}:chaos", def.name)] })
+}
+
+/// `Result < Applied >` -> `Applied` (the type an op answers with when it succeeds).
+fn inner(t: &str) -> String {
+    let t = t.replace(' ', "");
+    t.strip_prefix("Result<").and_then(|x| x.strip_suffix('>')).map(str::to_string).unwrap_or(t)
+}
+
+/// SKILL.md from [`describe`]: the skill text, each op with its cap, grant kind, typed input and output, one worked
+/// `call` line, and the refusals. `up` writes it next to cell.lock; a test in each example checks the file equals this.
+pub fn skill_md(def: CellDef) -> String {
+    let d = describe(def);
+    let mut s = format!("# {} (v{})\n\n{}\n\n", def.name, def.version, def.skill);
+    let home = match def.home {
+        crate::Home::Device => "one replica on the device cell.lock names (home = Device)".to_string(),
+        crate::Home::Fleet => format!("{} replicas over one quorum log; every effect happens once", def.replicas),
+    };
+    s += &format!("Runs as {home}. Generated from `{} describe`; do not edit by hand.\n\n## Ops\n\n", def.name);
+    for o in d["ops"].as_array().cloned().unwrap_or_default() {
+        let (op, cap, right) = (o["op"].as_str().unwrap_or(""), o["cap"].as_str().unwrap_or(""), o["right"].as_str().unwrap_or(""));
+        let passkey = o["grant"] == "Passkey";
+        s += &format!("### `{op}`\n\n- cap `{cap}` (chain right `{right}`)\n- input `{}`, answers `{}`\n", o["input"].as_str().unwrap_or(""), o["output"].as_str().unwrap_or(""));
+        if passkey {
+            s += "- grant = Passkey: without a grant it answers `NeedsGrant { cell, op, caller, input_hash, summary }`; the owner's tap signs a one-use grant for that exact input (`grant`), and the same call is retried with it (`--grant-file`)\n";
+        }
+        s += &format!("- call: `{} call {op} '<{} as JSON>' --key <idempotency key>{}`\n\n", def.name, o["input"].as_str().unwrap_or(""), if passkey { " --grant-file <grant.json>" } else { "" });
+    }
+    let recs = d["records"].as_array().cloned().unwrap_or_default();
+    if !recs.is_empty() {
+        s += "## Records\n\n";
+        for r in recs {
+            let fields: Vec<String> = r["fields"].as_array().cloned().unwrap_or_default().iter().map(|f| format!("{}: {}", f[0].as_str().unwrap_or(""), f[1].as_str().unwrap_or(""))).collect();
+            s += &format!("- `{}` {{ {} }}\n", r["record"].as_str().unwrap_or(""), fields.join(", "));
+        }
+        s += "\n";
+    }
+    s += "## Refusals\n\n- `Denied(why)`: the caller's chain does not hold the right (an audit row)\n- `NeedsGrant(..)`: a Passkey op without the owner's one-use grant\n- `NotLeader(addr)`, `NoQuorum`: retry with the same key; it runs once\n- `Quota { agent, used, limit }`: the cell's AI bucket for that agent is spent today\n- `Backend(why)`, `Input(why)`\n";
+    s
+}
+
+/// The owner's tap on a NeedsGrant card: a one-use grant for exactly what it asks, signed with the device key.
+fn grant_cmd(args: &[String]) -> Result<(), String> {
+    let text = match args.get(1).filter(|a| !a.starts_with("--")) {
+        Some(t) => t.clone(),
+        None => std::io::read_to_string(std::io::stdin()).map_err(|e| e.to_string())?,
+    };
+    let v: Value = serde_json::from_str(text.trim()).map_err(|e| format!("NeedsGrant JSON: {e}"))?;
+    // the whole reply, its err, or the NeedsGrant itself
+    let v = v.pointer("/reply/err/NeedsGrant").or_else(|| v.pointer("/err/NeedsGrant")).or_else(|| v.get("NeedsGrant")).cloned().unwrap_or(v);
+    let n: crate::NeedsGrant = serde_json::from_value(v).map_err(|e| format!("NeedsGrant: {e}"))?;
+    let seed = std::env::var("SEVEN_DEVICE_SEED").or_else(|_| std::env::var("SEVEN_OWNER_SEED")).map_err(|_| "SEVEN_DEVICE_SEED (or SEVEN_OWNER_SEED) is not set")?;
+    let device = Identity::from_seed(shop_chain::hex_seed(seed.trim()).ok_or("the device seed is not 64 hex")?);
+    let ttl = flag(args, "--ttl").and_then(|t| t.parse().ok()).unwrap_or(300u64).min(3600);
+    println!("{}", serde_json::to_string(&crate::one_use(&device, &n, ttl)).map_err(|e| e.to_string())?);
+    Ok(())
 }
 
 // ------------------------------------------------------------------------------------------------ serve
@@ -115,7 +182,7 @@ async fn serve(def: CellDef, args: &[String]) -> Result<(), String> {
     let ai = AiBackend::from_env();
     let addr = l.replicas[me].addr.clone();
     eprintln!("{} v{} replica {me}/{} on {addr} ({}), data {}, ai {}", def.name, def.version, l.replicas.len(), hostname(), dir.display(), ai.name());
-    let node = Node::open(def, me, l.addrs(), l.cell.root.clone(), dir, ai);
+    let node = Node::open_with(def, me, l.addrs(), l.cell.root.clone(), l.cell.owners.clone(), dir, ai);
     crate::node::serve(node, &addr).await.map_err(|e| format!("{addr}: {e}"))
 }
 
@@ -129,7 +196,11 @@ fn holder(def: CellDef, rights: Option<Vec<String>>) -> Result<Holder, String> {
     let rights = rights.unwrap_or_else(|| {
         std::env::var("SEVEN_RIGHTS").map(|r| r.split(',').map(String::from).collect()).unwrap_or_else(|_| vec![format!("{}:*", def.name)])
     });
-    let agent = Identity::generate();
+    // SEVEN_AGENT_SEED: the same caller key across calls, so a NeedsGrant answer and its retry name one caller
+    let agent = match std::env::var("SEVEN_AGENT_SEED") {
+        Ok(s) => Identity::from_seed(shop_chain::hex_seed(s.trim()).ok_or("SEVEN_AGENT_SEED is not 64 hex")?),
+        Err(_) => Identity::generate(),
+    };
     let chain = Chain::root(&owner, &agent.public_hex(), rights, Caveats { tenant: def.name.into(), until: shop_chain::now() + 3600, ..Default::default() });
     Ok(Holder { id: agent, chain })
 }
@@ -199,6 +270,11 @@ async fn call_cmd(def: CellDef, args: &[String]) -> Result<(), String> {
         let owner = Identity::from_seed(shop_chain::hex_seed(seed.trim()).ok_or("SEVEN_OWNER_SEED is not 64 hex")?);
         if let Msg::Call { grant, .. } = &mut msg {
             *grant = Some(crate::passkey_grant(&owner, &h.id.public_hex(), def.name, op, &body, 300));
+        }
+    } else if let Some(f) = flag(args, "--grant-file") {
+        let g: Chain = serde_json::from_str(&std::fs::read_to_string(&f).map_err(|e| format!("{f}: {e}"))?).map_err(|e| format!("{f}: {e}"))?;
+        if let Msg::Call { grant, .. } = &mut msg {
+            *grant = Some(g);
         }
     }
     let (r, tries) = call_leader(&l.addrs(), &msg, Duration::from_secs(60)).await;
@@ -307,6 +383,14 @@ async fn up(def: CellDef, args: &[String]) -> Result<(), String> {
     let local = |n: &str| n == "local" || n == me;
     let t0 = Instant::now();
     let mut steps = Vec::new();
+
+    // 0 SKILL.md next to cell.lock, from describe (an agent reads it before calling; a test keeps it equal)
+    let skill = lock_path.with_file_name("SKILL.md");
+    if std::fs::read_to_string(&skill).ok().as_deref() != Some(skill_md(def).as_str()) {
+        std::fs::write(&skill, skill_md(def)).map_err(|e| format!("{}: {e}", skill.display()))?;
+        eprintln!("0 skill  wrote {}", skill.display());
+    }
+    steps.push(json!({ "step": "skill", "file": skill.display().to_string() }));
 
     // 1 build + 2 pin
     let target = format!("{}-unknown-linux-gnu", std::env::consts::ARCH);

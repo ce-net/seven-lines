@@ -161,6 +161,14 @@ impl<'a> Twin<'a> {
     pub fn put<R: Record>(self, r: &R) -> TwinPut<'a> {
         TwinPut { cx: self.cx, record: R::NAME, body: serde_json::to_value(r).unwrap_or(Value::Null) }
     }
+    /// Every committed `R` in this replica's twin, with the request key that wrote it, in key order. A read, not a
+    /// step: an op filters what it returns here, at the server (a caller sees only what its rights allow).
+    pub fn all<R: Record + serde::de::DeserializeOwned>(self) -> Vec<(String, R)> {
+        let pre = format!("{}/", R::NAME);
+        self.cx.node.log.read(|s, _| {
+            s.twin.range(pre.clone()..).take_while(|(k, _)| k.starts_with(&pre)).filter_map(|(k, v)| Some((k[pre.len()..].to_string(), serde_json::from_value(v.clone()).ok()?))).collect()
+        })
+    }
 }
 
 pub struct TwinPut<'a> {

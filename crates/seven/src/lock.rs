@@ -26,6 +26,10 @@ pub struct LockCell {
     /// The api name the node's door and cell.install know the cell by.
     #[serde(default)]
     pub api: String,
+    /// The owner's device keys (hex) that may sign a one-use grant besides the root (DEVICE-IS-THE-LOGIN: the passkey
+    /// tap on a device signs with that device's key). They grant nothing else.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owners: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -37,6 +41,10 @@ pub struct Replica {
     /// `sim` = a second process on the same machine, standing in for a node we do not have.
     #[serde(default)]
     pub sim: bool,
+    /// What this device may run, when the row says (an account cell refuses a vendor its device row does not list:
+    /// the Macs' rows list no Claude). None: not stated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

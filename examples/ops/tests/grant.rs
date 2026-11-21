@@ -29,6 +29,8 @@ struct Cluster {
     kids: Vec<Child>,
     addrs: Vec<String>,
     owner: Identity,
+    /// the owner's device key (cell.lock `owners`): signs one-use grants, holds no chain
+    device: Identity,
     dir: std::path::PathBuf,
 }
 
@@ -47,8 +49,9 @@ fn cluster(tag: &str) -> Cluster {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let owner = Identity::generate();
+    let device = Identity::generate();
     let ports: Vec<u16> = (0..3).map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()).collect();
-    let mut lock = format!("[cell]\nname = \"ops\"\nroot = \"{}\"\n", owner.public_hex());
+    let mut lock = format!("[cell]\nname = \"ops\"\nroot = \"{}\"\nowners = [\"{}\"]\n", owner.public_hex(), device.public_hex());
     for (i, p) in ports.iter().enumerate() {
         lock.push_str(&format!("[[replica]]\nnode = \"r{i}\"\naddr = \"127.0.0.1:{p}\"\n"));
     }
@@ -73,7 +76,7 @@ fn cluster(tag: &str) -> Cluster {
         })
         .collect();
     let addrs = ports.iter().map(|p| format!("127.0.0.1:{p}")).collect();
-    Cluster { kids, addrs, owner, dir }
+    Cluster { kids, addrs, owner, device, dir }
 }
 
 fn agent(c: &Cluster) -> Holder {
@@ -168,4 +171,42 @@ fn apply_needs_a_one_use_grant_for_this_exact_change() {
     assert_eq!(result["key"], "a4");
     assert!(grant["seq"].as_u64() < result["seq"].as_u64());
     assert_eq!(kinds.iter().filter(|k| *k == "grant").count(), 1);
+}
+
+#[test]
+fn skill_md_is_what_describe_says() {
+    let out = String::from_utf8(Command::new(BIN).arg("skill").output().unwrap().stdout).unwrap();
+    assert_eq!(include_str!("../SKILL.md"), out, "examples/ops/SKILL.md is stale: run `ops skill > examples/ops/SKILL.md` (up writes it)");
+}
+
+/// The owner's tap (repo:ce/docs/LAUNCH-SLICE-2026-11-21.md 7.3): no grant -> NeedsGrant naming the caller and the
+/// input's hash; the owner's device key signs a one-use grant from exactly that answer; the same call with it runs once.
+#[test]
+fn needs_grant_then_the_device_tap_then_the_retry() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let c = cluster("tap");
+    let h = agent(&c);
+    let p = call(&rt, &c, &msg(&h, "propose", "p1", &json!("which cell is unhealthy?").to_string(), None)).expect("propose");
+    let body = p["out"].to_string();
+
+    let e = call(&rt, &c, &msg(&h, "apply", "t1", &body, None)).unwrap_err();
+    let v: Value = serde_json::from_str(&e).unwrap();
+    let n: ce::NeedsGrant = serde_json::from_value(v["NeedsGrant"].clone()).unwrap_or_else(|_| panic!("{e}"));
+    assert_eq!((n.cell.as_str(), n.op.as_str(), n.caller.clone(), n.input_hash.clone()), ("ops", "apply", h.id.public_hex(), ce::machine::sha_hex(body.as_bytes())));
+    assert!(n.summary.contains("ops.apply"), "{}", n.summary);
+
+    // a device key the lock does not list: refused
+    let e = call(&rt, &c, &msg(&h, "apply", "t1", &body, Some(ce::one_use(&Identity::generate(), &n, 300)))).unwrap_err();
+    assert!(e.contains("Denied"), "{e}");
+    // the listed device key signs from the card's NeedsGrant alone; the retry runs once
+    let g = ce::one_use(&c.device, &n, 300);
+    let ok = call(&rt, &c, &msg(&h, "apply", "t2", &body, Some(g.clone()))).expect("apply with the device grant");
+    assert_eq!(ok["out"]["ok"], true, "{ok:#}");
+    // the same grant on another request: spent
+    assert!(call(&rt, &c, &msg(&h, "apply", "t3", &body, Some(g))).unwrap_err().contains("already used"));
+    // a grant from that NeedsGrant does not open another input
+    let other = json!({ "change": { "Restart": { "cell": "shop" } }, "note": "x" }).to_string();
+    let e = call(&rt, &c, &msg(&h, "apply", "t4", &other, Some(ce::one_use(&c.device, &n, 300)))).unwrap_err();
+    assert!(e.contains("another call"), "{e}");
+    assert_eq!(std::fs::read_to_string(c.dir.join("restarts.log")).unwrap().lines().count(), 1);
 }

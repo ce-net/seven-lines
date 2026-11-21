@@ -159,6 +159,10 @@ pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
         return err(f.sig.ident.span(), "name the op's input");
     }
     let in_ty = &arg.ty;
+    let out_ty = match &f.sig.output {
+        syn::ReturnType::Type(_, t) => quote!(#t),
+        syn::ReturnType::Default => quote!(()),
+    };
     let (rt, _) = runtime();
     let ident = &f.sig.ident;
     let name = ident.to_string();
@@ -174,7 +178,7 @@ pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
             })
         }
         #rt::inventory::submit! {
-            #rt::OpDef { name: #name, cap: #cap, input: stringify!(#in_ty), grant: #rt::Grant::#grant, call: #call }
+            #rt::OpDef { name: #name, cap: #cap, input: stringify!(#in_ty), output: stringify!(#out_ty), grant: #rt::Grant::#grant, call: #call }
         }
     }
     .into()

@@ -64,7 +64,48 @@ pub enum Grant {
 
 /// The right a passkey grant names: `grant:<cell>.<op>:<sha256 of the input JSON text>`.
 pub fn grant_right(cell: &str, op: &str, body: &str) -> String {
-    format!("grant:{cell}.{op}:{}", machine::sha_hex(body.as_bytes()))
+    grant_right_for(cell, op, &machine::sha_hex(body.as_bytes()))
+}
+
+/// [`grant_right`] from the input's hash (what a [`NeedsGrant`] answer carries).
+pub fn grant_right_for(cell: &str, op: &str, input_hash: &str) -> String {
+    format!("grant:{cell}.{op}:{input_hash}")
+}
+
+/// The answer to a `grant = Passkey` call that came without a grant: what the owner is asked to sign. The client posts
+/// it as a card (in ce: `decision.card` kind `grant`); the owner's tap signs [`one_use`] with the owner's device key;
+/// the card's answer is the grant and the client retries the same call (same key, same body) with it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NeedsGrant {
+    pub cell: String,
+    pub op: String,
+    /// The caller's key (hex): the only key the grant will admit.
+    pub caller: String,
+    /// sha256 of the exact input JSON text: the only input the grant will admit.
+    pub input_hash: String,
+    /// One line for the card: who asks to run what, with the start of the input.
+    pub summary: String,
+}
+
+impl NeedsGrant {
+    pub fn new(cell: &str, op: &str, caller: &str, body: &str) -> NeedsGrant {
+        let start: String = body.chars().take(160).collect();
+        let more = if body.chars().count() > 160 { " ..." } else { "" };
+        NeedsGrant {
+            cell: cell.into(),
+            op: op.into(),
+            caller: caller.into(),
+            input_hash: machine::sha_hex(body.as_bytes()),
+            summary: format!("key {} asks to run {cell}.{op} once with {start}{more}; this op needs the owner's passkey grant for this exact call", &caller[..caller.len().min(12)]),
+        }
+    }
+}
+
+/// The owner's tap: a one-use grant (`OneUse { cell, op, caller, input_hash, exp }`) for exactly what `n` asks, signed
+/// by `device` (the owner root, or an owner device key that cell.lock lists in `owners`), valid `ttl_s` seconds.
+pub fn one_use(device: &shop_chain::Identity, n: &NeedsGrant, ttl_s: u64) -> shop_chain::Chain {
+    let cav = shop_chain::Caveats { tenant: n.cell.clone(), once: true, until: shop_chain::now() + ttl_s, ..Default::default() };
+    shop_chain::Chain::root(device, &n.caller, vec![grant_right_for(&n.cell, &n.op, &n.input_hash)], cav)
 }
 
 /// The owner signs a grant for one call: `holder` (the caller's key) may run `op` once with exactly `body`, for
@@ -79,6 +120,8 @@ pub struct OpDef {
     pub name: &'static str,
     pub cap: &'static str,
     pub input: &'static str,
+    /// The op's return type as written (`Result < Applied >`); [`cli::skill_md`] shows the inner type.
+    pub output: &'static str,
     pub grant: Grant,
     pub call: fn(Cx, serde_json::Value) -> BoxFut<serde_json::Value>,
 }
@@ -264,6 +307,8 @@ pub fn summary<R: Record>(r: &R) -> String {
 pub enum Error {
     /// The caller's chain does not hold the right (the denial is an audit row).
     Denied(String),
+    /// A `grant = Passkey` op called without a grant: what the owner is asked to sign ([`one_use`]).
+    NeedsGrant(NeedsGrant),
     /// This replica is not the leader (or lost leadership mid-op); the client retries at the leader.
     NotLeader(Option<String>),
     /// No majority answered in time; the client retries with the same key.
@@ -289,6 +334,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Denied(r) => write!(f, "denied: {r}"),
+            Error::NeedsGrant(n) => write!(f, "needs a grant: {}", n.summary),
             Error::NotLeader(l) => write!(f, "not the leader (leader: {})", l.as_deref().unwrap_or("unknown")),
             Error::NoQuorum => write!(f, "no quorum"),
             Error::Quota { agent, used, limit } => write!(f, "AI quota spent for {agent}: {used}/{limit} today"),

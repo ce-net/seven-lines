@@ -126,6 +126,8 @@ pub struct Node {
     pub me: usize,
     pub addrs: Vec<String>,
     pub root: String,
+    /// The keys a one-use grant may be signed by: the root, then the owner's device keys from cell.lock.
+    pub grant_keys: Vec<String>,
     pub log: Log<State>,
     pub ai: AiBackend,
     pub node_name: String,
@@ -137,6 +139,13 @@ pub struct Node {
 
 impl Node {
     pub fn open(def: CellDef, me: usize, addrs: Vec<String>, root: String, dir: PathBuf, ai: AiBackend) -> Arc<Node> {
+        Node::open_with(def, me, addrs, root, vec![], dir, ai)
+    }
+
+    /// [`Node::open`] with the owner's device keys that may sign one-use grants (cell.lock `owners`).
+    pub fn open_with(def: CellDef, me: usize, addrs: Vec<String>, root: String, owners: Vec<String>, dir: PathBuf, ai: AiBackend) -> Arc<Node> {
+        let mut grant_keys = vec![root.clone()];
+        grant_keys.extend(owners.into_iter().filter(|k| k.len() == 64 && *k != root));
         let peers = Arc::new(crate::wire::TcpPeers::new(addrs.clone()));
         let log = Log::<State>::open(Config { me, peers: addrs.clone(), dir, unsafe_local_ack: false }, peers);
         let peer_ips = addrs.iter().filter_map(|a| a.parse::<std::net::SocketAddr>().ok()).map(|s| s.ip()).collect();
@@ -146,6 +155,7 @@ impl Node {
             me,
             addrs,
             root,
+            grant_keys,
             log,
             ai,
             node_name: hostname(),
@@ -249,7 +259,19 @@ impl Node {
         if g.0.len() != 1 {
             return Err("a passkey grant is one link from the owner; it cannot be delegated".into());
         }
-        let v = g.verify(&self.root, shop_chain::now()).map_err(|e| format!("grant: {}", e.0))?;
+        // signed by the root or by one of the owner's device keys; the first that verifies decides
+        let mut first_err = None;
+        let v = self
+            .grant_keys
+            .iter()
+            .find_map(|k| match g.verify(k, shop_chain::now()) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    first_err.get_or_insert(e.0);
+                    None
+                }
+            })
+            .ok_or_else(|| format!("grant: {}", first_err.unwrap_or_default()))?;
         if v.holder != holder {
             return Err("grant is for another caller".into());
         }
@@ -284,6 +306,12 @@ impl Node {
             return json!({ "ok": true, "out": out, "replayed": true, "by": self.addrs[self.me], "term": self.log.status().term });
         }
         if def.grant == crate::Grant::Passkey {
+            if grant.is_none() {
+                // not a refusal of the caller: the owner has not been asked yet. Audited, answered with what to sign.
+                let n = crate::NeedsGrant::new(self.def.name, op, &v.holder, body);
+                let _ = self.deny(op, &right, &v.holder, "needs the owner's one-use grant (asked)").await;
+                return json!({ "err": Error::NeedsGrant(n) });
+            }
             let id = match self.check_grant(op, body, &v.holder, grant) {
                 Ok(id) => id,
                 Err(why) => return self.deny(op, &right, &v.holder, &why).await,
