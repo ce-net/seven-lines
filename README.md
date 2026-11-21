@@ -100,6 +100,12 @@ Three additions to the runtime make it work:
   signs only after a passkey tap). The grant is bound to the caller's key and to the sha256 of this exact input, and it
   can be used once. A missing grant, a grant for another input, another caller or another signer, and a grant already
   spent on another request are all refused, and each refusal is an audit row. A spent grant is an audit row too.
+  Without a grant the call answers `NeedsGrant { cell, op, caller, input_hash, summary }`: the client posts it as a
+  card, the owner's tap signs a one-use grant for exactly that ask (`<cell> grant`, `seven::one_use`) with the root or
+  an owner device key that cell.lock lists in `[cell] owners`, and the same call is retried with it (`--grant-file`).
+- `SKILL.md`: `<cell> skill` prints it from `describe` (the `skill =` text, each op with its cap, grant kind, input and
+  output types, a worked `call` line, the refusals); `up` writes it next to cell.lock and each example tests that the
+  committed file equals it.
 - `home = Device` on `#[cell]`: exactly one replica (`replicas = 1` is then the only count that compiles), and
   `serve` refuses to start on any device except the one cell.lock names.
 - `cx.fleet()`: `snapshot()` reads the cells on this node (systemd user units, `SEVEN_FLEET_UNITS`, default
@@ -130,9 +136,9 @@ passkey tap on the owner's phone is not part of this proof. The live system was 
 - The twin and audit stream live in the cell's own replicated log. Publishing them to the owner's twin cells and
   `state.store` is not built.
 - `pay.live`: the grant is checked, but no live provider exists and no red live badge exists. Test mode only.
-- TypeScript and Python cell definers (SEVEN-LINES.md gap 7), and a `skill =` text in `SKILL.md`.
-- The grant's passkey tap: the runtime checks an owner-signed, one-use grant bound to the input hash. The card on the
-  owner's phone that makes the owner key sign it (ce's `access-grant`) is not wired to this runtime yet.
+- TypeScript and Python cell definers (SEVEN-LINES.md gap 7; design repo:ce/docs/LAUNCH-SLICE-2026-11-21.md section 9).
+- The grant's passkey tap: `NeedsGrant` and the device-key grant are in the runtime; the card on the owner's phone that
+  answers a `NeedsGrant` (decision.card kind `grant`) is not wired to it yet, so proofs sign with a test key.
 - `cx.fleet()` reads one node's systemd units unless `SEVEN_FLEET_CMD` supplies the mesh view (orchestrator,
   store health, key holdings, AI spend). That mesh command is deployment-side and not in this repository.
 - Failover takes about 0.6 to 1.2 s with a 150 ms heartbeat (`SHOP_BEAT_MS`). Election timeouts are randomised from 4 to 8 beats.
