@@ -9,10 +9,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: the seven lines are seven lines
-        run: test "$(wc -l < examples/orders/src/main.rs)" -eq 7
+        run: |
+          test "$(wc -l < examples/orders/src/main.rs)" -eq 7
+          test "$(wc -l < examples/orders-ts/cell.ts)" -eq 7
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
       - name: build (fresh clone, public dependencies only)
         run: cargo build --workspace --release --locked
       - name: unit, in-process replicas, three processes with the leader killed mid-order
         run: cargo test --workspace --release --locked
       - name: describe the cell the seven lines declare
         run: target/release/orders describe
+      - name: the same cell from TypeScript (same contract hash)
+        run: |
+          a=$(target/release/orders describe | python3 -c 'import json,sys; print(json.load(sys.stdin)["contract"])')
+          b=$(target/release/seven-host --worker "node packages/seven-ts/run.mjs examples/orders-ts/cell.ts" describe | python3 -c 'import json,sys; print(json.load(sys.stdin)["contract"])')
+          test "$a" = "$b" && echo "contract $a"

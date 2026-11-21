@@ -128,6 +128,68 @@ the unit was `active` afterwards. The plan row (6) and the grant row (8) carry t
 result is row 9, and the three audit heads were equal. The owner key was a fresh demo key made for the run, so the
 passkey tap on the owner's phone is not part of this proof. The live system was stopped afterwards.
 
+## The same cell in TypeScript and Python (2026-11-21)
+
+```ts
+export default cell("orders", { replicas: 3 })
+  .record("Order", { sku: Sku, qty: u32, paid: Money })
+  .op("place", { cap: "orders.place" }, async (cx, o) => {
+    const charge = await cx.pay.charge(o.paid);
+    const note   = await cx.ai.ask(Quota.agent(), summary(o));
+    await cx.twin.put(o).audit(charge);
+    return Receipt(charge, note); });
+```
+
+```py
+@cell("orders", replicas=3)
+class Orders:
+    class Order(Record): sku: Sku; qty: u32; paid: Money
+    @op(cap="orders.place")
+    async def place(self, cx, o: Order) -> Receipt:
+        charge = await cx.pay.charge(o.paid)
+        return Receipt(charge, await cx.ai.ask(Quota.agent(), summary(o)), await cx.twin.put(o).audit(charge))
+```
+
+The first is all of [`examples/orders-ts/cell.ts`](examples/orders-ts/cell.ts), 7 lines (a test counts). The Python
+form is 7 lines too and ran the same proof (below). Its package is not in this repository yet: new Python files are
+refused here by the owner's rule that new code is type-safe Rust, so `ce-seven` waits for the owner's decision on an
+SDK exception. One runtime, three
+languages: replication, the gate, the log, `cx` and exactly-once stay in Rust. A TypeScript or Python cell is a worker
+process beside each replica.
+
+```
+seven-host (replica: gate, quorum log, cx layers)  <- seven.worker@1, one JSON frame per line on stdio ->  worker (cell.ts | cell.py)
+```
+
+- `seven-host --worker "<runner> <file>" <command>` is the same binary as a Rust cell (`serve`, `call`, `grant`,
+  `prove`, `up`, `describe`, `skill`). Its ops table comes from the worker's `Describe`, and each op body is an
+  `Invoke` on the worker. The contract is [`crates/seven-worker-api`](crates/seven-worker-api/src/lib.rs):
+  `Describe`, `Invoke`, and `Cx` (worker to host) with the layers `Pay | Ai | Twin | Store | Fleet`.
+- The gate runs in the host before `Invoke`, so a refused caller never reaches the worker. Every `Cx` with an effect is
+  a step of the request in the log, keyed by `(request, step)` as for Rust. On a new leader the retried `Invoke` gets
+  the recorded results back, so the charge happens once.
+- The worker runs in a fresh network namespace (`unshare -rn`; `SEVEN_WORKER_JAIL=off` skips it, `on` requires it),
+  at `nice 10` inside the replica's own CPU cap. Its environment holds no seeds or keys (`PATH`, `HOME`, `LANG`,
+  `TMPDIR`, `NODE_PATH`, `PYTHONPATH` only). Its only way out is `Cx`.
+- `describe` carries `contract`, the sha256 of the rest of describe. The TypeScript, Python and Rust orders cells have
+  the same value (a test checks it).
+- Packages with no dependencies: [`packages/seven-ts`](packages/seven-ts) (`@ce-net/seven`, Node 18+; `.ts` files
+  written in the seven-line form load on any Node, and full TypeScript syntax needs Node 22.6+ type stripping or
+  Bun) and `ce-seven` (Python 3.11+, not committed; see above). As with `#[cell]`, the runner brings
+  `cell`, `Quota`, `Receipt`, `summary` and the scalar types into scope, so a cell file needs no import line.
+
+```sh
+cargo build --release
+W="node packages/seven-ts/run.mjs examples/orders-ts/cell.ts"
+target/release/seven-host --worker "$W" describe
+cargo test -p seven-host --release    # 7 lines, same contract, and the leader-kill proof (Python too where ce-seven is present)
+```
+
+Recorded run: [`docs/runs/2026-11-21-definers.json`](docs/runs/2026-11-21-definers.json). Three replicas per language on
+one machine. The leader was killed right after the charge committed, and the new leader replayed it from the log:
+typescript: failover 985 ms, order 2445 ms, resumed 1 step, exactly once true; python: failover 1068 ms, order 2432 ms, resumed 1 step, exactly once true. Every replica held one charge and one audit receipt for the order, and the
+audit heads were equal. The AI was the local stand-in (`vendor: local`) and payments were in test mode.
+
 ## Not done yet
 
 - The run across two machines is waiting on the install grant for the second node (see above).
@@ -136,7 +198,11 @@ passkey tap on the owner's phone is not part of this proof. The live system was 
 - The twin and audit stream live in the cell's own replicated log. Publishing them to the owner's twin cells and
   `state.store` is not built.
 - `pay.live`: the grant is checked, but no live provider exists and no red live badge exists. Test mode only.
-- TypeScript and Python cell definers (SEVEN-LINES.md gap 7; design repo:ce/docs/LAUNCH-SLICE-2026-11-21.md section 9).
+- `up` for a TypeScript or Python cell: `up` pins the artifact named after the cell (`orders`), not `seven-host`, so
+  `ce up` on a `cell.ts` or `cell.py` and `ce new orders --ts | --py` are not wired yet. `up` already passes
+  `SEVEN_WORKER` to the replicas it starts. Today the replicas run as `seven-host --worker .. serve`, as the test does.
+- `ce-seven`, the Python definer, is built and proven but not committed: the repository refuses new Python files under
+  the owner's type-safe-Rust rule. It needs his decision on an exception for SDK packages.
 - The grant's passkey tap: `NeedsGrant` and the device-key grant are in the runtime; the card on the owner's phone that
   answers a `NeedsGrant` (decision.card kind `grant`) is not wired to it yet, so proofs sign with a test key.
 - `cx.fleet()` reads one node's systemd units unless `SEVEN_FLEET_CMD` supplies the mesh view (orchestrator,

@@ -135,14 +135,30 @@ pub struct RecordDef {
 }
 inventory::collect!(RecordDef);
 
+/// Ops and records a cell declares at run time instead of with the macros: `seven-host` fills this from a
+/// TypeScript or Python worker's `Describe`. Set once, before `run`; the macro-registered ones stay.
+static DEFINED: std::sync::OnceLock<(Vec<OpDef>, Vec<RecordDef>)> = std::sync::OnceLock::new();
+
+/// Declare ops and records at run time (once). False if they were already declared.
+pub fn define(ops: Vec<OpDef>, records: Vec<RecordDef>) -> bool {
+    DEFINED.set((ops, records)).is_ok()
+}
+
 pub fn ops() -> Vec<&'static OpDef> {
-    let mut v: Vec<_> = inventory::iter::<OpDef>.into_iter().collect();
+    let mut v: Vec<&'static OpDef> = inventory::iter::<OpDef>.into_iter().collect();
+    if let Some((o, _)) = DEFINED.get() {
+        v.extend(o.iter());
+    }
     v.sort_by_key(|o| o.name);
     v
 }
 
 pub fn records() -> Vec<&'static RecordDef> {
-    inventory::iter::<RecordDef>.into_iter().collect()
+    let mut v: Vec<&'static RecordDef> = inventory::iter::<RecordDef>.into_iter().collect();
+    if let Some((_, r)) = DEFINED.get() {
+        v.extend(r.iter());
+    }
+    v
 }
 
 /// A record bound to its cell (`#[record(cell = orders)]`).
@@ -154,6 +170,11 @@ pub trait Record: Serialize {
 /// The generated `main`.
 pub fn run(def: CellDef) {
     std::process::exit(cli::main(def));
+}
+
+/// [`run`] with the arguments given (a host that takes its own flags first passes the rest).
+pub fn run_with(def: CellDef, args: Vec<String>) {
+    std::process::exit(cli::main_with(def, args));
 }
 
 /// The capability right a `cap = "orders.place"` names, in chain form: `orders:place` (so `orders:*` covers it).

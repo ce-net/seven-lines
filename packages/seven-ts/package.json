@@ -1,0 +1,13 @@
+{
+  "name": "@ce-net/seven",
+  "version": "0.1.0",
+  "description": "Define a seven cell in TypeScript: the ops run in this worker, replication, the gate, payments, AI quota and the audited twin in seven-host",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": { ".": "./index.mjs", "./run": "./run.mjs" },
+  "bin": { "seven-ts": "run.mjs" },
+  "engines": { "node": ">=18" },
+  "files": ["index.mjs", "index.d.ts", "run.mjs"],
+  "repository": "https://github.com/ce-net/seven-lines"
+}

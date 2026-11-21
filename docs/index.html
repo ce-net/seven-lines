@@ -55,6 +55,15 @@
   <section><h2>Every replica after the run</h2><div class="glass scroll"><table id="reps"><thead><tr><th>Replica</th><th>Charges for B</th><th>Charge id</th><th>Ledger rows</th><th>Audit rows</th><th>Audit chain</th><th>Audit head</th></tr></thead><tbody></tbody></table></div></section>
   <section><h2>Order A and the refusal</h2><div class="glass rows" id="ordera"></div></section>
   <section><h2>Deploy (up)</h2><div class="glass rows" id="up"></div></section>
+  <section><h2>The same cell in TypeScript and Python</h2>
+  <p class="note">One runtime, three languages. The replica, the gate, the log and every <code>cx</code> step stay in Rust
+    (<code>seven-host</code>). The ops run in a worker beside each replica, with no network, and talk to the host over
+    <code>seven.worker@1</code> on stdio. Seven lines each, and the same contract as the Rust cell.</p>
+  <section class="glass ticks"><pre class="code" aria-label="examples/orders-ts/cell.ts"><span>export default cell(&quot;orders&quot;, { replicas: 3 })</span><span>  .record(&quot;Order&quot;, { sku: Sku, qty: u32, paid: Money })</span><span>  .op(&quot;place&quot;, { cap: &quot;orders.place&quot; }, async (cx, o) =&gt; {</span><span>    const charge = await cx.pay.charge(o.paid);</span><span>    const note   = await cx.ai.ask(Quota.agent(), summary(o));</span><span>    await cx.twin.put(o).audit(charge);</span><span>    return Receipt(charge, note); });</span></pre></section>
+  <section class="glass ticks"><pre class="code" aria-label="the Python form (ce-seven)"><span>@cell(&quot;orders&quot;, replicas=3)</span><span>class Orders:</span><span>    class Order(Record): sku: Sku; qty: u32; paid: Money</span><span>    @op(cap=&quot;orders.place&quot;)</span><span>    async def place(self, cx, o: Order) -&gt; Receipt:</span><span>        charge = await cx.pay.charge(o.paid)</span><span>        return Receipt(charge, await cx.ai.ask(Quota.agent(), summary(o)), await cx.twin.put(o).audit(charge))</span></pre></section>
+  <div class="glass rows"><div><b>Typescript</b><span>failover 985 ms · order 2445 ms · resumed 1 step · exactly once true</span></div><div><b>Python</b><span>failover 1068 ms · order 2432 ms · resumed 1 step · exactly once true</span></div><div><b>Contract hash (Rust, TypeScript, Python)</b><span>f540a57fb65ae4cb…</span></div></div>
+  <p class="note">Raw file: <a href="runs/2026-11-21-definers.json">definers.json</a>. The leader was killed right after the
+    charge committed, on three replicas on one machine. The AI was a local stand-in and payments were in test mode.</p></section>
   <p class="note" style="margin-top:28px">Raw files: <a href="runs/2026-11-19-ops1-prove.json">prove.json</a> ·
     <a href="runs/2026-11-19-ops1-up.json">up.json</a> · <a href="runs/2026-11-19-ops1-cell.lock">cell.lock</a>.
     This run had all three replicas on one server (one replica plus two simulated nodes), because the second

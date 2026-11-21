@@ -1,0 +1,299 @@
+{
+  "run": "2026-11-21 seven-lines definers: the orders cell written in TypeScript and in Python, each on seven-host",
+  "how": "cargo test -p seven-host --release (crates/seven-host/tests/definers.rs): three seven-host replicas on loopback per language, each with its worker (node 18 run.mjs cell.ts | python3.11 run.py cell.py) in a fresh network namespace at nice 10; prove kills the leader right after the charge step commits; a supervisor restarts it after 1 s. AI is the local stand-in (vendor local), payments test mode. Node names replaced by build-node.",
+  "contract": "f540a57fb65ae4cbf6b275854d5f2b1dd527c51d778f500c0249e99d718a08dc (Rust, TypeScript and Python describe all give this value)",
+  "runs": {
+    "typescript": {
+      "audit_heads_equal": true,
+      "cell": "orders",
+      "denied": {
+        "refused": true,
+        "why": "{\"Denied\":\"orders:place: chain does not hold orders:place\"}"
+      },
+      "exactly_once": true,
+      "leader_before": {
+        "addr": "127.0.0.1:37403",
+        "node": "build-node",
+        "term": 1
+      },
+      "order_a": {
+        "key": "A-1795259276",
+        "ms": 1392,
+        "receipt": {
+          "charge": {
+            "amount": {
+              "cur": "SEK",
+              "minor": 249900
+            },
+            "id": "ch_test_f88b4c61f8cb22c8",
+            "key": "A-1795259276",
+            "log_idx": 3,
+            "mode": "Test",
+            "seq": 1
+          },
+          "note": {
+            "asks_left": 19,
+            "bucket": "local / agent:44bbf0a992e3ed69",
+            "device": "build-node",
+            "model": "none",
+            "ms": 1200,
+            "text": "local note 6b48920a: e in minor units): {\"sku\":\"TENT-2P\",\"qty\":1,\"paid\":{\"minor\":249900,\"cur\":\"SEK\"}}",
+            "vendor": "local"
+          }
+        }
+      },
+      "order_b": {
+        "charged_before_kill": true,
+        "client_tries": 34,
+        "failover_ms": 985,
+        "key": "B-1795259276",
+        "kill": "external SIGKILL of the leader process once its charge step committed",
+        "killed": {
+          "addr": "127.0.0.1:37403",
+          "node": "build-node",
+          "term": 1
+        },
+        "new_leader": {
+          "addr": "127.0.0.1:35979",
+          "node": "build-node",
+          "term": 2
+        },
+        "order_ms": 2445,
+        "receipt": {
+          "charge": {
+            "amount": {
+              "cur": "SEK",
+              "minor": 249900
+            },
+            "id": "ch_test_a8f65b6f70fbfa4a",
+            "key": "B-1795259276",
+            "log_idx": 7,
+            "mode": "Test",
+            "seq": 2
+          },
+          "note": {
+            "asks_left": 18,
+            "bucket": "local / agent:44bbf0a992e3ed69",
+            "device": "build-node",
+            "model": "none",
+            "ms": 1200,
+            "text": "local note 6b48920a: e in minor units): {\"sku\":\"TENT-2P\",\"qty\":1,\"paid\":{\"minor\":249900,\"cur\":\"SEK\"}}",
+            "vendor": "local"
+          }
+        },
+        "resumed_steps": 1,
+        "retry_charge_id": "ch_test_a8f65b6f70fbfa4a",
+        "retry_replayed": true
+      },
+      "pass": true,
+      "replicas": [
+        {
+          "addr": "127.0.0.1:44459",
+          "node": "r0",
+          "sim": false
+        },
+        {
+          "addr": "127.0.0.1:35979",
+          "node": "r1",
+          "sim": false
+        },
+        {
+          "addr": "127.0.0.1:37403",
+          "node": "r2",
+          "sim": false
+        }
+      ],
+      "replicas_after": [
+        {
+          "addr": "127.0.0.1:44459",
+          "audit_chain_ok": true,
+          "audit_head": "e84d84d9a9e5670d99063827e0708a4f1b3a0255c94e29274d5900b071156cd0",
+          "audit_receipts_for_b": 1,
+          "audit_rows": 3,
+          "charge_ids": [
+            "ch_test_a8f65b6f70fbfa4a"
+          ],
+          "charges_for_b": 1,
+          "done_b": true,
+          "ledger_rows": 2,
+          "up": true
+        },
+        {
+          "addr": "127.0.0.1:35979",
+          "audit_chain_ok": true,
+          "audit_head": "e84d84d9a9e5670d99063827e0708a4f1b3a0255c94e29274d5900b071156cd0",
+          "audit_receipts_for_b": 1,
+          "audit_rows": 3,
+          "charge_ids": [
+            "ch_test_a8f65b6f70fbfa4a"
+          ],
+          "charges_for_b": 1,
+          "done_b": true,
+          "ledger_rows": 2,
+          "up": true
+        },
+        {
+          "addr": "127.0.0.1:37403",
+          "audit_chain_ok": true,
+          "audit_head": "e84d84d9a9e5670d99063827e0708a4f1b3a0255c94e29274d5900b071156cd0",
+          "audit_receipts_for_b": 1,
+          "audit_rows": 3,
+          "charge_ids": [
+            "ch_test_a8f65b6f70fbfa4a"
+          ],
+          "charges_for_b": 1,
+          "done_b": true,
+          "ledger_rows": 2,
+          "up": true
+        }
+      ],
+      "started": 1795259276
+    },
+    "python": {
+      "audit_heads_equal": true,
+      "cell": "orders",
+      "denied": {
+        "refused": true,
+        "why": "{\"Denied\":\"orders:place: chain does not hold orders:place\"}"
+      },
+      "exactly_once": true,
+      "leader_before": {
+        "addr": "127.0.0.1:42865",
+        "node": "build-node",
+        "term": 1
+      },
+      "order_a": {
+        "key": "A-1795259276",
+        "ms": 1293,
+        "receipt": {
+          "charge": {
+            "amount": {
+              "cur": "SEK",
+              "minor": 249900
+            },
+            "id": "ch_test_f88b4c61f8cb22c8",
+            "key": "A-1795259276",
+            "log_idx": 3,
+            "mode": "Test",
+            "seq": 1
+          },
+          "note": {
+            "asks_left": 19,
+            "bucket": "local / agent:bae43b49714fc18c",
+            "device": "build-node",
+            "model": "none",
+            "ms": 1200,
+            "text": "local note 6b48920a: e in minor units): {\"sku\":\"TENT-2P\",\"qty\":1,\"paid\":{\"minor\":249900,\"cur\":\"SEK\"}}",
+            "vendor": "local"
+          }
+        }
+      },
+      "order_b": {
+        "charged_before_kill": true,
+        "client_tries": 36,
+        "failover_ms": 1068,
+        "key": "B-1795259276",
+        "kill": "external SIGKILL of the leader process once its charge step committed",
+        "killed": {
+          "addr": "127.0.0.1:42865",
+          "node": "build-node",
+          "term": 1
+        },
+        "new_leader": {
+          "addr": "127.0.0.1:36511",
+          "node": "build-node",
+          "term": 2
+        },
+        "order_ms": 2432,
+        "receipt": {
+          "charge": {
+            "amount": {
+              "cur": "SEK",
+              "minor": 249900
+            },
+            "id": "ch_test_a8f65b6f70fbfa4a",
+            "key": "B-1795259276",
+            "log_idx": 7,
+            "mode": "Test",
+            "seq": 2
+          },
+          "note": {
+            "asks_left": 18,
+            "bucket": "local / agent:bae43b49714fc18c",
+            "device": "build-node",
+            "model": "none",
+            "ms": 1200,
+            "text": "local note 6b48920a: e in minor units): {\"sku\":\"TENT-2P\",\"qty\":1,\"paid\":{\"minor\":249900,\"cur\":\"SEK\"}}",
+            "vendor": "local"
+          }
+        },
+        "resumed_steps": 1,
+        "retry_charge_id": "ch_test_a8f65b6f70fbfa4a",
+        "retry_replayed": true
+      },
+      "pass": true,
+      "replicas": [
+        {
+          "addr": "127.0.0.1:42865",
+          "node": "r0",
+          "sim": false
+        },
+        {
+          "addr": "127.0.0.1:36511",
+          "node": "r1",
+          "sim": false
+        },
+        {
+          "addr": "127.0.0.1:38393",
+          "node": "r2",
+          "sim": false
+        }
+      ],
+      "replicas_after": [
+        {
+          "addr": "127.0.0.1:42865",
+          "audit_chain_ok": true,
+          "audit_head": "59cc5b052986a2c9213957aea4a097501328e70dffa1b06855ddf51dac2d213a",
+          "audit_receipts_for_b": 1,
+          "audit_rows": 3,
+          "charge_ids": [
+            "ch_test_a8f65b6f70fbfa4a"
+          ],
+          "charges_for_b": 1,
+          "done_b": true,
+          "ledger_rows": 2,
+          "up": true
+        },
+        {
+          "addr": "127.0.0.1:36511",
+          "audit_chain_ok": true,
+          "audit_head": "59cc5b052986a2c9213957aea4a097501328e70dffa1b06855ddf51dac2d213a",
+          "audit_receipts_for_b": 1,
+          "audit_rows": 3,
+          "charge_ids": [
+            "ch_test_a8f65b6f70fbfa4a"
+          ],
+          "charges_for_b": 1,
+          "done_b": true,
+          "ledger_rows": 2,
+          "up": true
+        },
+        {
+          "addr": "127.0.0.1:38393",
+          "audit_chain_ok": true,
+          "audit_head": "59cc5b052986a2c9213957aea4a097501328e70dffa1b06855ddf51dac2d213a",
+          "audit_receipts_for_b": 1,
+          "audit_rows": 3,
+          "charge_ids": [
+            "ch_test_a8f65b6f70fbfa4a"
+          ],
+          "charges_for_b": 1,
+          "done_b": true,
+          "ledger_rows": 2,
+          "up": true
+        }
+      ],
+      "started": 1795259275
+    }
+  }
+}

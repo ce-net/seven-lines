@@ -442,6 +442,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "seven-host"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "seven",
+ "seven-worker-api",
+ "tokio",
+]
+
+[[package]]
 name = "seven-macros"
 version = "0.1.0"
 dependencies = [
@@ -449,6 +459,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "seven-worker-api"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -159,7 +159,16 @@ pub struct Twin<'a> {
 
 impl<'a> Twin<'a> {
     pub fn put<R: Record>(self, r: &R) -> TwinPut<'a> {
-        TwinPut { cx: self.cx, record: R::NAME, body: serde_json::to_value(r).unwrap_or(Value::Null) }
+        TwinPut { cx: self.cx, record: R::NAME.to_string(), body: serde_json::to_value(r).unwrap_or(Value::Null) }
+    }
+    /// [`put`](Twin::put) of a record named at run time (a worker's record: its name and its JSON body).
+    pub fn put_named(self, record: &str, body: Value) -> TwinPut<'a> {
+        TwinPut { cx: self.cx, record: record.to_string(), body }
+    }
+    /// [`all`](Twin::all) for a record named at run time.
+    pub fn all_named(self, record: &str) -> Vec<(String, Value)> {
+        let pre = format!("{record}/");
+        self.cx.node.log.read(|s, _| s.twin.range(pre.clone()..).take_while(|(k, _)| k.starts_with(&pre)).map(|(k, v)| (k[pre.len()..].to_string(), v.clone())).collect())
     }
     /// Every committed `R` in this replica's twin, with the request key that wrote it, in key order. A read, not a
     /// step: an op filters what it returns here, at the server (a caller sees only what its rights allow).
@@ -173,7 +182,7 @@ impl<'a> Twin<'a> {
 
 pub struct TwinPut<'a> {
     cx: &'a Cx,
-    record: &'static str,
+    record: String,
     body: Value,
 }
 
@@ -197,7 +206,7 @@ async fn twin_write(put: TwinPut<'_>, of: Value) -> Result<AuditReceipt> {
     if let Some(r) = cx.recorded::<AuditReceipt>(n) {
         return Ok(r);
     }
-    cx.commit(n, Entry::Twin { key: cx.key.clone(), n, record: put.record.to_string(), body: put.body, of, by: cx.agent() }).await
+    cx.commit(n, Entry::Twin { key: cx.key.clone(), n, record: put.record, body: put.body, of, by: cx.agent() }).await
 }
 
 impl<'a> IntoFuture for TwinAudit<'a> {

@@ -32,7 +32,11 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 pub fn main(def: CellDef) -> i32 {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    main_with(def, std::env::args().skip(1).collect())
+}
+
+/// [`main`] over the arguments given.
+pub fn main_with(def: CellDef, args: Vec<String>) -> i32 {
     if std::env::var("SHOP_BEAT_MS").is_err() {
         // replog's heartbeat: election after 4-8 beats of silence; 150 ms gives a 0.6-1.2 s failover
         std::env::set_var("SHOP_BEAT_MS", "150");
@@ -87,8 +91,20 @@ pub fn describe(def: CellDef) -> Value {
     let ops: Vec<Value> =
         crate::ops().iter().map(|o| json!({ "op": o.name, "cap": o.cap, "right": right_of(o.cap), "input": o.input, "output": inner(o.output), "grant": o.grant })).collect();
     let recs: Vec<Value> = crate::records().iter().map(|r| json!({ "record": r.name, "cell": r.cell, "fields": r.fields })).collect();
-    json!({ "cell": def.name, "version": def.version, "replicas": def.replicas, "home": def.home, "skill": def.skill, "ops": ops, "records": recs,
-            "admin_rights": [format!("{}:read", def.name), format!("{}:chaos", def.name)] })
+    let mut d = json!({ "cell": def.name, "version": def.version, "replicas": def.replicas, "home": def.home, "skill": def.skill, "ops": ops, "records": recs,
+            "admin_rights": [format!("{}:read", def.name), format!("{}:chaos", def.name)] });
+    d["contract"] = json!(contract_hash(&d));
+    d
+}
+
+/// sha256 of the describe JSON (keys sorted, compact, without `contract`): equal for a cell however it was
+/// written (Rust macros, a TypeScript or a Python worker) when it declares the same ops, caps and records.
+pub fn contract_hash(describe: &Value) -> String {
+    let mut d = describe.clone();
+    if let Some(m) = d.as_object_mut() {
+        m.remove("contract");
+    }
+    crate::machine::sha_hex(serde_json::to_string(&d).unwrap_or_default().as_bytes())
 }
 
 /// `Result < Applied >` -> `Applied` (the type an op answers with when it succeeds).
@@ -435,8 +451,12 @@ async fn up(def: CellDef, args: &[String]) -> Result<(), String> {
             cmd.args(["--user", "--unit", &unit, "-p", "CPUQuota=50%", "-p", "MemoryMax=256M", "-p", "Restart=on-failure", "-p", "RestartSec=2"])
                 .arg(format!("--setenv=SEVEN_LOCK={}", lock_path.display()))
                 .arg(format!("--setenv=PATH={}", std::env::var("PATH").unwrap_or_default()))
-                .arg(format!("--setenv=SEVEN_AI={}", std::env::var("SEVEN_AI").unwrap_or_else(|_| "auto".into())))
-                .arg(&bin)
+                .arg(format!("--setenv=SEVEN_AI={}", std::env::var("SEVEN_AI").unwrap_or_else(|_| "auto".into())));
+            // a TypeScript or Python cell: seven-host starts its worker from this (see seven-host)
+            if let Ok(w) = std::env::var("SEVEN_WORKER") {
+                cmd.arg(format!("--setenv=SEVEN_WORKER={w}"));
+            }
+            cmd.arg(&bin)
                 .args(["serve", "--me", &i.to_string()]);
             sh(&mut cmd)?;
             steps.push(json!({ "step": "start", "replica": i, "node": me, "unit": unit, "bin_sha256": arts.first().map(|a| a.sha256.clone()) }));

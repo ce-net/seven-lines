@@ -1,0 +1,12 @@
+[package]
+name = "seven-worker-api"
+description = "seven.worker@1: the contract between seven-host (the Rust replica) and a TypeScript or Python cell worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
