@@ -24,6 +24,8 @@ pub enum Entry {
     Grant { id: String, key: String, op: String, input_sha256: String, holder: String },
     /// A side effect outside the log (a restart, a sandbox start), recorded once as step `n` of `key`.
     Step { key: String, n: u32, kind: String, out: Value, by: String },
+    /// Commits a one-replica leader's epoch; changes nothing.
+    Epoch,
     /// A refused call, audited.
     Denied { op: String, right: String, holder: String, why: String, at: u64 },
 }
@@ -179,6 +181,7 @@ impl shop_replog::Machine for State {
                 self.steps.insert((key.clone(), *n), v.clone());
                 v
             }
+            Entry::Epoch => Value::Null,
             Entry::Denied { op, right, holder, why, at } => {
                 let r = self.audit(idx, "denied", "", json!({ "op": op, "right": right, "holder": holder, "why": why, "at": at }));
                 serde_json::to_value(&r).unwrap()

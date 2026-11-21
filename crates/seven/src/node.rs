@@ -140,7 +140,8 @@ impl Node {
         let peers = Arc::new(crate::wire::TcpPeers::new(addrs.clone()));
         let log = Log::<State>::open(Config { me, peers: addrs.clone(), dir, unsafe_local_ack: false }, peers);
         let peer_ips = addrs.iter().filter_map(|a| a.parse::<std::net::SocketAddr>().ok()).map(|s| s.ip()).collect();
-        Arc::new(Node {
+        let single = addrs.len() == 1;
+        let node = Arc::new(Node {
             def,
             me,
             addrs,
@@ -152,7 +153,24 @@ impl Node {
             keys: Mutex::new(HashMap::new()),
             crash_after: AtomicI64::new(i64::MIN),
             started: Instant::now(),
-        })
+        });
+        if single {
+            // A one-replica cell (`home = Device`) has no peer to acknowledge its epoch's no-op, so the log never
+            // reports ready. One local `Epoch` entry commits it (with one member, a proposal commits on append).
+            let n = node.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    if n.log.ready() {
+                        continue;
+                    }
+                    if n.log.status().role == Role::Leader {
+                        let _ = n.log.propose(Entry::Epoch).await;
+                    }
+                }
+            });
+        }
+        node
     }
 
     /// Propose `e`; a lost majority is retried (the entry is idempotent), a lost leadership is the client's to retry.
