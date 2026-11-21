@@ -80,6 +80,48 @@ Where the run happened: all three replicas were on one server, one replica plus 
 The replica on the second machine is in the deployment lock (kept outside the repository, named by `SEVEN_LOCK`), but `cell.install` there refused the install
 (`Right("cell.install:install")`). The grant is requested and the proof runs again when it arrives.
 
+## A second cell: `ops` (2026-11-21)
+
+[`examples/ops/src/main.rs`](examples/ops/src/main.rs), whole file:
+
+```rust
+#[ce::cell(name = "ops", version = 1, replicas = 3, skill = "Watch the fleet; propose; apply only with a grant.")]
+#[record(cell = ops)] struct Change { change: FleetChange, note: String }
+#[op(cap = "ops.propose")] async fn propose(cx: Cx, q: String) -> Result<Change> {
+    let fleet = cx.fleet().snapshot().await?; let note = cx.ai().ask(Quota::agent(), fleet.question(&q)).await?;
+    let c = Change { change: fleet.proposal(), note: note.text }; cx.twin().put(&c).await?; Ok(c) }
+#[op(cap = "ops.apply", grant = Passkey)] async fn apply(cx: Cx, c: Change) -> Result<Applied> {
+    cx.fleet().apply(c.change).audit().await }
+```
+
+Three additions to the runtime make it work:
+
+- `grant = Passkey` on `#[op]`: the call also carries a grant, one link signed by the owner key (in ce the owner key
+  signs only after a passkey tap). The grant is bound to the caller's key and to the sha256 of this exact input, and it
+  can be used once. A missing grant, a grant for another input, another caller or another signer, and a grant already
+  spent on another request are all refused, and each refusal is an audit row. A spent grant is an audit row too.
+- `home = Device` on `#[cell]`: exactly one replica (`replicas = 1` is then the only count that compiles), and
+  `serve` refuses to start on any device except the one cell.lock names.
+- `cx.fleet()`: `snapshot()` reads the cells on this node (systemd user units, `SEVEN_FLEET_UNITS`, default
+  `seven-*`) or whatever the deployment's `SEVEN_FLEET_CMD` prints for a whole mesh. `apply()` takes a closed enum
+  and does exactly one kind today, `Restart { cell }` of a cell the snapshot lists. Everything else returns `NotYet`.
+  Each read and each restart is one recorded step of the request, so a retry never restarts twice.
+
+`cargo test -p ops` runs three replicas on loopback over a fixed fleet with one cell down. It checks that apply
+without a grant is refused, that grants for another `Change`, for another caller and from a non-owner key are
+refused, that a valid grant restarts the cell exactly once (and its retry is a replay), that the spent grant is
+refused on a new request, and that plan, grant and result are audit rows linked by the hash of the `Change`.
+
+### The recorded run (2026-11-21)
+
+[`docs/runs/2026-11-21-ops-live.json`](docs/runs/2026-11-21-ops-live.json): a live system on one server, three
+replicas capped at `CPUQuota=25%`, and a demo cell (`CPUQuota=5%`) stopped on purpose. "Which cell is unhealthy?"
+gave `Restart { cell: "seven-demo-sick" }` in 3.9 s with the note from claude/haiku through sub.gateway. Apply
+without a grant was refused (audit row 7). With a grant it restarted the unit in 96 ms (146 ms at the client), and
+the unit was `active` afterwards. The plan row (6) and the grant row (8) carry the same sha256 `b100ef35…`, the
+result is row 9, and the three audit heads were equal. The owner key was a fresh demo key made for the run, so the
+passkey tap on the owner's phone is not part of this proof. The live system was stopped afterwards.
+
 ## Not done yet
 
 - The run across two machines is waiting on the install grant for the second node (see above).
@@ -89,6 +131,10 @@ The replica on the second machine is in the deployment lock (kept outside the re
   `state.store` is not built.
 - `pay.live`: the grant is checked, but no live provider exists and no red live badge exists. Test mode only.
 - TypeScript and Python cell definers (SEVEN-LINES.md gap 7), and a `skill =` text in `SKILL.md`.
+- The grant's passkey tap: the runtime checks an owner-signed, one-use grant bound to the input hash. The card on the
+  owner's phone that makes the owner key sign it (ce's `access-grant`) is not wired to this runtime yet.
+- `cx.fleet()` reads one node's systemd units unless `SEVEN_FLEET_CMD` supplies the mesh view (orchestrator,
+  store health, key holdings, AI spend). That mesh command is deployment-side and not in this repository.
 - Failover takes about 0.6 to 1.2 s with a 150 ms heartbeat (`SHOP_BEAT_MS`). Election timeouts are randomised from 4 to 8 beats.
 
 Licence: Apache-2.0.

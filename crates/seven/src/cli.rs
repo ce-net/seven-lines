@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage: <cell> <command>
   serve [--me N] [--dir D]        run one replica (from cell.lock)
-  call <op> <json> [--key K]      call an op at the leader (signed with SEVEN_OWNER_SEED, or SEVEN_RIGHTS narrower)
+  call <op> <json> [--key K] [--grant]
+                                  call an op at the leader (signed with SEVEN_OWNER_SEED, or SEVEN_RIGHTS narrower);
+                                  --grant: the owner also signs a one-use grant for this exact call (grant = Passkey ops)
   status | dump                   every replica's role, term, ledger, audit head | the applied state
   crash [--after N]               chaos: SIGKILL the leader now, or right after step N of its next order
   describe                        ops, caps, records and the skill text
@@ -71,9 +73,9 @@ fn lock() -> Result<(PathBuf, Lock), String> {
 }
 
 pub fn describe(def: CellDef) -> Value {
-    let ops: Vec<Value> = crate::ops().iter().map(|o| json!({ "op": o.name, "cap": o.cap, "right": right_of(o.cap), "input": o.input })).collect();
+    let ops: Vec<Value> = crate::ops().iter().map(|o| json!({ "op": o.name, "cap": o.cap, "right": right_of(o.cap), "input": o.input, "grant": o.grant })).collect();
     let recs: Vec<Value> = crate::records().iter().map(|r| json!({ "record": r.name, "cell": r.cell, "fields": r.fields })).collect();
-    json!({ "cell": def.name, "version": def.version, "replicas": def.replicas, "skill": def.skill, "ops": ops, "records": recs,
+    json!({ "cell": def.name, "version": def.version, "replicas": def.replicas, "home": def.home, "skill": def.skill, "ops": ops, "records": recs,
             "admin_rights": [format!("{}:read", def.name), format!("{}:chaos", def.name)] })
 }
 
@@ -94,6 +96,15 @@ async fn serve(def: CellDef, args: &[String]) -> Result<(), String> {
             order.into_iter().find(|&i| std::net::TcpListener::bind(&l.replicas[i].addr).is_ok()).ok_or("no replica in cell.lock binds here (pass --me N)")?
         }
     };
+    if def.home == crate::Home::Device {
+        if l.replicas.len() != 1 {
+            return Err(format!("{} is home = Device: cell.lock must list exactly one replica, it lists {}", def.name, l.replicas.len()));
+        }
+        let r = &l.replicas[0];
+        if r.node != "local" && r.node != hostname() && std::env::var("SEVEN_DEVICE").ok().as_deref() != Some(r.node.as_str()) {
+            return Err(format!("{} is home = Device and belongs to {}; this is {}", def.name, r.node, hostname()));
+        }
+    }
     if l.cell.root.len() != 64 {
         return Err("cell.lock [cell] root must be the owner's public key (64 hex)".into());
     }
@@ -124,7 +135,7 @@ fn holder(def: CellDef, rights: Option<Vec<String>>) -> Result<Holder, String> {
 }
 
 fn call_msg(def: CellDef, h: &Holder, op: &str, key: &str, body: &str) -> Msg {
-    Msg::Call { op: op.into(), key: key.into(), body: body.into(), auth: h.auth(def.name, op_code(op), &signed_body(key, body)) }
+    Msg::Call { op: op.into(), key: key.into(), body: body.into(), auth: h.auth(def.name, op_code(op), &signed_body(key, body)), grant: None }
 }
 
 fn admin_msg(def: CellDef, h: &Holder, m: Msg) -> Msg {
@@ -181,7 +192,16 @@ async fn call_cmd(def: CellDef, args: &[String]) -> Result<(), String> {
     let body = args.get(2).cloned().unwrap_or_else(|| "null".into());
     let key = flag(args, "--key").unwrap_or_else(|| format!("{op}-{}", shop_chain::now()));
     let h = holder(def, None)?;
-    let (r, tries) = call_leader(&l.addrs(), &call_msg(def, &h, op, &key, &body), Duration::from_secs(60)).await;
+    let mut msg = call_msg(def, &h, op, &key, &body);
+    if args.iter().any(|a| a == "--grant") {
+        // the owner key is here (SEVEN_OWNER_SEED), so the owner is the one signing: a grant for this exact call
+        let seed = std::env::var("SEVEN_OWNER_SEED").unwrap_or_default();
+        let owner = Identity::from_seed(shop_chain::hex_seed(seed.trim()).ok_or("SEVEN_OWNER_SEED is not 64 hex")?);
+        if let Msg::Call { grant, .. } = &mut msg {
+            *grant = Some(crate::passkey_grant(&owner, &h.id.public_hex(), def.name, op, &body, 300));
+        }
+    }
+    let (r, tries) = call_leader(&l.addrs(), &msg, Duration::from_secs(60)).await;
     let v = r?;
     println!("{}", serde_json::to_string_pretty(&json!({ "key": key, "tries": tries, "reply": v })).unwrap());
     Ok(())

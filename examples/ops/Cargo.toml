@@ -1,0 +1,17 @@
+[package]
+name = "ops"
+description = "The ops cell: a fleet snapshot, an AI proposal, and apply only with the owner's one-use passkey grant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+ce = { package = "seven", path = "../../crates/seven" }
+
+[dev-dependencies]
+ce = { package = "seven", path = "../../crates/seven" }
+serde_json.workspace = true
+shop-chain.workspace = true
+tokio.workspace = true

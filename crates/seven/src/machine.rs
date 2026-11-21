@@ -20,6 +20,10 @@ pub enum Entry {
     Twin { key: String, n: u32, record: String, body: Value, of: Value, by: String },
     /// The op finished: its output, kept for every retry of the key.
     Done { key: String, op: String, out: Value },
+    /// A passkey grant spent on request `key`: first use wins, an audit row names it.
+    Grant { id: String, key: String, op: String, input_sha256: String, holder: String },
+    /// A side effect outside the log (a restart, a sandbox start), recorded once as step `n` of `key`.
+    Step { key: String, n: u32, kind: String, out: Value, by: String },
     /// A refused call, audited.
     Denied { op: String, right: String, holder: String, why: String, at: u64 },
 }
@@ -55,6 +59,8 @@ pub struct State {
     pub audit: Vec<AuditRow>,
     pub done: BTreeMap<String, Value>,
     pub ai_used: BTreeMap<(String, u64), u32>,
+    /// grant id -> the request key it was spent on
+    pub grants: BTreeMap<String, String>,
 }
 
 pub fn sha_hex(b: &[u8]) -> String {
@@ -156,6 +162,23 @@ impl shop_replog::Machine for State {
                 let _ = op;
                 out.clone()
             }
+            Entry::Grant { id, key, op, input_sha256, holder } => {
+                if let Some(k) = self.grants.get(id) {
+                    return json!({ "spent_on": k, "fresh": false });
+                }
+                self.grants.insert(id.clone(), key.clone());
+                let r = self.audit(idx, "grant", key, json!({ "grant": id, "op": op, "input_sha256": input_sha256, "holder": holder }));
+                json!({ "spent_on": key, "fresh": true, "receipt": r })
+            }
+            Entry::Step { key, n, kind, out, by } => {
+                if let Some(v) = self.steps.get(&(key.clone(), *n)) {
+                    return v.clone();
+                }
+                let r = self.audit(idx, kind, key, json!({ "out": out, "by": by }));
+                let v = json!({ "out": out, "receipt": r });
+                self.steps.insert((key.clone(), *n), v.clone());
+                v
+            }
             Entry::Denied { op, right, holder, why, at } => {
                 let r = self.audit(idx, "denied", "", json!({ "op": op, "right": right, "holder": holder, "why": why, "at": at }));
                 serde_json::to_value(&r).unwrap()
@@ -193,6 +216,16 @@ mod tests {
         let again = s.apply(3, &Entry::Done { key: "k".into(), op: "place".into(), out: json!(2) });
         assert_eq!((first, again), (json!(1), json!(1)));
         assert!(s.inflight().is_empty());
+    }
+
+    #[test]
+    fn a_grant_is_spent_once() {
+        let mut s = State::default();
+        let g = |key: &str| Entry::Grant { id: "g1".into(), key: key.into(), op: "apply".into(), input_sha256: "h".into(), holder: "x".into() };
+        assert_eq!(s.apply(1, &g("k1"))["fresh"], json!(true));
+        let again = s.apply(2, &g("k2"));
+        assert_eq!((again["fresh"].clone(), again["spent_on"].clone()), (json!(false), json!("k1")));
+        assert_eq!(s.audit.len(), 1);
     }
 
     #[test]

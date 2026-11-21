@@ -1,0 +1,81 @@
+{
+  "run": "2026-11-21 ops cell, live system on one server, three replicas on loopback, each capped at CPUQuota=25% MemoryMax=256M",
+  "owner_key": "a fresh demo key made for this run (`ops keygen`); the owner's passkey tap on a phone is not part of this run",
+  "fleet": "systemd --user units matching seven-demo-*; seven-demo-sick (CPUQuota=5%) was stopped on purpose",
+  "question": "which cell is unhealthy?",
+  "propose": {
+    "ms": 3948,
+    "change": {
+      "Restart": {
+        "cell": "seven-demo-sick"
+      }
+    },
+    "note": "**seven-demo-sick** is unhealthy: it's inactive/dead. Restart `seven-demo-sick`.",
+    "ai": "sub.gateway (claude/haiku)"
+  },
+  "apply_without_grant": "refused: ops:apply: this op needs the owner's passkey grant for this exact call (audit row 7)",
+  "apply_with_grant": {
+    "client_ms": 146,
+    "restart_ms": 96,
+    "active_after": "active",
+    "unit": "seven-demo-sick.service"
+  },
+  "linked_rows": [
+    {
+      "seq": 5,
+      "kind": "fleet.snapshot",
+      "key": "live-p2",
+      "sha256": null,
+      "hash": "727a326f9ec77a3b0caf7ad133fc217dd7bebf020bbf58d077f12d1a2a43b5b7"
+    },
+    {
+      "seq": 6,
+      "kind": "twin.put",
+      "key": "live-p2",
+      "sha256": "b100ef35bf98fabb0ee04cd36dd6c392efed666028a3af8462c114ab3f3672f8",
+      "hash": "05fa00f4433fff7f699cce8720146c0974daaaeb5892eb9f9677a74d97023628"
+    },
+    {
+      "seq": 7,
+      "kind": "denied",
+      "key": "",
+      "sha256": null,
+      "hash": "31f6e2ad765d4d592121c431edb28aa78a6482f9553d48d333b16fb7c6735d2d"
+    },
+    {
+      "seq": 8,
+      "kind": "grant",
+      "key": "live-a3",
+      "sha256": "b100ef35bf98fabb0ee04cd36dd6c392efed666028a3af8462c114ab3f3672f8",
+      "hash": "f557c58985b7c0f1389ebd4d520b4df549ab6d7b990d7ca286945edb9ac6406a"
+    },
+    {
+      "seq": 9,
+      "kind": "fleet.restart",
+      "key": "live-a3",
+      "sha256": null,
+      "hash": "e8f6ebb04df5c4d2c106a53577555e6634d5ce2fa18e13a7d01646ef20b2052e"
+    }
+  ],
+  "replicas": [
+    {
+      "addr": "127.0.0.1:7471",
+      "applied": 16,
+      "audit_chain_ok": true,
+      "audit_head": "e8f6ebb04df5c4d2c106a53577555e6634d5ce2fa18e13a7d01646ef20b2052e"
+    },
+    {
+      "addr": "127.0.0.1:7472",
+      "applied": 15,
+      "audit_chain_ok": true,
+      "audit_head": "e8f6ebb04df5c4d2c106a53577555e6634d5ce2fa18e13a7d01646ef20b2052e"
+    },
+    {
+      "addr": "127.0.0.1:7473",
+      "applied": 15,
+      "audit_chain_ok": true,
+      "audit_head": "e8f6ebb04df5c4d2c106a53577555e6634d5ce2fa18e13a7d01646ef20b2052e"
+    }
+  ],
+  "note": "an earlier propose in the same run saw no cells (a stopped unit is unloaded by systemd); the snapshot now also reads unit files, and its grant (row 4) was spent on a change kind apply does not support yet"
+}

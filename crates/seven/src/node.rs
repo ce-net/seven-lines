@@ -221,6 +221,30 @@ impl Node {
     }
 
     pub async fn call(self: &Arc<Node>, op: &str, key: &str, body: &str, auth: &shop_chain::Auth) -> Value {
+        self.call_granted(op, key, body, auth, None).await
+    }
+
+    /// A `grant = Passkey` op: the grant must be one link from the owner root, unexpired, `once`, held by the
+    /// caller, naming this op and the sha256 of this exact body, and not spent on another request.
+    fn check_grant(&self, op: &str, body: &str, holder: &str, grant: Option<&shop_chain::Chain>) -> std::result::Result<String, String> {
+        let g = grant.ok_or("this op needs the owner's passkey grant for this exact call")?;
+        if g.0.len() != 1 {
+            return Err("a passkey grant is one link from the owner; it cannot be delegated".into());
+        }
+        let v = g.verify(&self.root, shop_chain::now()).map_err(|e| format!("grant: {}", e.0))?;
+        if v.holder != holder {
+            return Err("grant is for another caller".into());
+        }
+        if !v.caveats.once {
+            return Err("grant must be once".into());
+        }
+        if v.rights != vec![crate::grant_right(self.def.name, op, body)] {
+            return Err("grant is for another call (op or input hash differs)".into());
+        }
+        Ok(v.chain_id)
+    }
+
+    pub async fn call_granted(self: &Arc<Node>, op: &str, key: &str, body: &str, auth: &shop_chain::Auth, grant: Option<&shop_chain::Chain>) -> Value {
         let Some(def) = crate::ops().into_iter().find(|o| o.name == op) else {
             return json!({ "err": Error::Input(format!("no op {op}")) });
         };
@@ -240,6 +264,18 @@ impl Node {
         let _g = lock.lock().await;
         if let Some(out) = self.log.read(|s, _| s.done.get(key).cloned()) {
             return json!({ "ok": true, "out": out, "replayed": true, "by": self.addrs[self.me], "term": self.log.status().term });
+        }
+        if def.grant == crate::Grant::Passkey {
+            let id = match self.check_grant(op, body, &v.holder, grant) {
+                Ok(id) => id,
+                Err(why) => return self.deny(op, &right, &v.holder, &why).await,
+            };
+            let input_sha256 = crate::machine::sha_hex(body.as_bytes());
+            match self.propose(Entry::Grant { id, key: key.into(), op: op.into(), input_sha256, holder: v.holder.clone() }).await {
+                Ok(r) if r["spent_on"] == key => {}
+                Ok(r) => return self.deny(op, &right, &v.holder, &format!("grant already used (on request {})", r["spent_on"])).await,
+                Err(e) => return json!({ "err": e }),
+            }
         }
         let resumed = self.log.read(|s, _| s.steps.range((key.to_string(), 0)..=(key.to_string(), u32::MAX)).count());
         let input: Value = match serde_json::from_str(body) {
@@ -263,7 +299,7 @@ impl Node {
             Msg::Vote { req } => serde_json::to_value(self.log.handle_vote(req)).unwrap(),
             Msg::Append { req } => serde_json::to_value(self.log.handle_append(req)).unwrap(),
             Msg::Status => self.status(),
-            Msg::Call { op, key, body, auth } => self.call(&op, &key, &body, &auth).await,
+            Msg::Call { op, key, body, auth, grant } => self.call_granted(&op, &key, &body, &auth, grant.as_ref()).await,
             ref m @ Msg::Dump { ref auth } => match self.verify(auth, "dump", &admin_body(m), &format!("{}:read", self.def.name)) {
                 Ok(_) => self.dump(),
                 Err(why) => json!({ "err": Error::Denied(why) }),

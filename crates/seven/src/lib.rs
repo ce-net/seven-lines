@@ -18,7 +18,7 @@ pub mod machine;
 pub mod node;
 pub mod wire;
 
-pub use cx::{Ai, Cx, Pay, Twin, TwinAudit, TwinPut};
+pub use cx::{read_fleet, Ai, Applied, Cx, Fleet, FleetApply, FleetCell, FleetChange, FleetRead, Pay, Twin, TwinAudit, TwinPut};
 pub use inventory;
 pub use seven_macros::{cell, op, record};
 pub use serde;
@@ -26,7 +26,7 @@ pub use serde_json;
 
 /// What `use seven::prelude::*` brings in. `#[cell]` writes that line for you.
 pub mod prelude {
-    pub use crate::{op, record, summary, AuditReceipt, Charge, Cx, Error, Mode, Money, Note, Quota, Receipt, Record, Result, Sku};
+    pub use crate::{op, record, summary, Applied, AuditReceipt, Charge, Cx, Error, Fleet, FleetChange, Mode, Money, Note, Quota, Receipt, Record, Result, Sku};
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -39,6 +39,39 @@ pub struct CellDef {
     pub version: u32,
     pub replicas: u32,
     pub skill: &'static str,
+    /// `home = Device`: one replica, bound to the device named in cell.lock (an account that is that device's own).
+    pub home: Home,
+}
+
+/// Where a cell's replicas may live.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Home {
+    /// Any nodes in cell.lock: 3, 5 or 7 replicas over the quorum log.
+    Fleet,
+    /// Exactly one replica, on the device cell.lock names; `serve` refuses to start anywhere else.
+    Device,
+}
+
+/// What an op needs besides the capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Grant {
+    /// The capability chain is enough.
+    None,
+    /// Also a one-use grant signed by the owner key itself (in ce: after a passkey tap), bound to the caller and to
+    /// the sha256 of this exact input. Never delegated: the grant is a single link from the owner.
+    Passkey,
+}
+
+/// The right a passkey grant names: `grant:<cell>.<op>:<sha256 of the input JSON text>`.
+pub fn grant_right(cell: &str, op: &str, body: &str) -> String {
+    format!("grant:{cell}.{op}:{}", machine::sha_hex(body.as_bytes()))
+}
+
+/// The owner signs a grant for one call: `holder` (the caller's key) may run `op` once with exactly `body`, for
+/// `ttl_s` seconds. In ce the owner key signs this only after a passkey tap on the owner's device.
+pub fn passkey_grant(owner: &shop_chain::Identity, holder: &str, cell: &str, op: &str, body: &str, ttl_s: u64) -> shop_chain::Chain {
+    let cav = shop_chain::Caveats { tenant: cell.into(), once: true, until: shop_chain::now() + ttl_s, ..Default::default() };
+    shop_chain::Chain::root(owner, holder, vec![grant_right(cell, op, body)], cav)
 }
 
 /// One `#[op]`, registered at link time.
@@ -46,6 +79,7 @@ pub struct OpDef {
     pub name: &'static str,
     pub cap: &'static str,
     pub input: &'static str,
+    pub grant: Grant,
     pub call: fn(Cx, serde_json::Value) -> BoxFut<serde_json::Value>,
 }
 inventory::collect!(OpDef);

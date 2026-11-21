@@ -245,6 +245,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ops"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "seven",
+ "shop-chain",
+ "tokio",
+]
+
+[[package]]
 name = "orders"
 version = "0.1.0"
 dependencies = [

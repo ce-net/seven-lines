@@ -6,13 +6,15 @@
 //! - `cx.ai()`: an ask through `sub.gateway` (the owner's subscriptions, metered per bucket there) after the cell's
 //!   own per-agent quota, which lives in the log too.
 //! - `cx.twin()`: the record into the cell's twin and a row in its hash-chained audit stream.
+//! - `cx.fleet()`: a read-only snapshot of the cells on this node (or what `SEVEN_FLEET_CMD` reports for a whole
+//!   mesh), and `apply` for one closed set of changes; today only `Restart { cell }`, of a cell the snapshot lists.
 //!
 //! Each call is step `n` of the request. A step already in the log is returned as it was committed, never redone.
 use crate::machine::Entry;
 use crate::node::Node;
 use crate::{AuditReceipt, Charge, Error, Mode, Money, Note, Quota, Record, Result};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -58,6 +60,24 @@ impl Cx {
     }
     pub fn twin(&self) -> Twin<'_> {
         Twin { cx: self }
+    }
+    pub fn fleet(&self) -> FleetRead<'_> {
+        FleetRead { cx: self }
+    }
+
+    /// Run a side effect once for step `n` of this request: a replay returns the recorded result.
+    pub async fn step<F, Fut2>(&self, kind: &str, f: F) -> Result<Value>
+    where
+        F: FnOnce() -> Fut2,
+        Fut2: Future<Output = Result<Value>>,
+    {
+        let n = self.next();
+        if let Some(v) = self.recorded::<Value>(n) {
+            return Ok(v["out"].clone());
+        }
+        let out = f().await?;
+        let v: Value = self.commit(n, Entry::Step { key: self.key.clone(), n, kind: kind.into(), out, by: self.agent() }).await?;
+        Ok(v["out"].clone())
     }
 
     fn next(&self) -> u32 {
@@ -185,5 +205,165 @@ impl<'a> IntoFuture for TwinPut<'a> {
     type IntoFuture = Fut<'a, AuditReceipt>;
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(twin_write(self, Value::Null))
+    }
+}
+
+// ------------------------------------------------------------------------------------------------ fleet
+
+/// One cell as the snapshot sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FleetCell {
+    pub name: String,
+    pub unit: String,
+    pub active: String,
+    pub sub: String,
+    pub healthy: bool,
+}
+
+/// What `cx.fleet().snapshot()` returns: cells, plus whatever the deployment's `SEVEN_FLEET_CMD` adds (nodes, key
+/// holdings and expiries, AI spend, incidents) under `more`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fleet {
+    pub at: u64,
+    pub source: String,
+    pub cells: Vec<FleetCell>,
+    #[serde(default)]
+    pub more: Value,
+}
+
+impl Fleet {
+    pub fn unhealthy(&self) -> Vec<&FleetCell> {
+        self.cells.iter().filter(|c| !c.healthy).collect()
+    }
+    /// The one change this build can propose on its own: restart the first unhealthy cell.
+    pub fn proposal(&self) -> FleetChange {
+        match self.unhealthy().first() {
+            Some(c) => FleetChange::Restart { cell: c.name.clone() },
+            None => FleetChange::Other { what: "nothing to change: every cell is healthy".into() },
+        }
+    }
+    /// The prompt for the owner's question over this snapshot.
+    pub fn question(&self, q: &str) -> String {
+        let rows: Vec<String> = self.cells.iter().map(|c| format!("{} {}/{}", c.name, c.active, c.sub)).collect();
+        format!("You watch a fleet of cells. Answer the owner in one or two sentences, and name the cell to restart if one is down.\nQuestion: {q}\nCells: {}", rows.join("; "))
+    }
+}
+
+/// The closed set of changes `apply` knows. Anything else is refused as not yet supported.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FleetChange {
+    Restart { cell: String },
+    Other { what: String },
+}
+
+/// What `apply` did.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Applied {
+    pub change: FleetChange,
+    pub unit: String,
+    pub ok: bool,
+    pub active_after: String,
+    pub ms: u64,
+}
+
+pub struct FleetRead<'a> {
+    cx: &'a Cx,
+}
+
+fn sh_out(cmd: &str) -> Result<String> {
+    let o = std::process::Command::new("sh").args(["-c", cmd]).output().map_err(|e| Error::Backend(format!("{cmd}: {e}")))?;
+    if !o.status.success() {
+        return Err(Error::Backend(format!("{cmd}: {}", String::from_utf8_lossy(&o.stderr).trim())));
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).to_string())
+}
+
+/// The snapshot without the log: `SEVEN_FLEET_CMD` (prints a `Fleet` as JSON), else the user's systemd units that
+/// match `SEVEN_FLEET_UNITS` (default `seven-*`).
+pub fn read_fleet() -> Result<Fleet> {
+    if let Ok(cmd) = std::env::var("SEVEN_FLEET_CMD") {
+        return serde_json::from_str(&sh_out(&cmd)?).map_err(Error::input);
+    }
+    let pat = std::env::var("SEVEN_FLEET_UNITS").unwrap_or_else(|_| "seven-*".into());
+    let loaded: Vec<Value> = serde_json::from_str(&sh_out(&format!("systemctl --user list-units --all --plain --no-legend --output=json '{pat}'"))?).map_err(Error::input)?;
+    // a stopped unit is often unloaded; its unit file still says the cell exists
+    let files: Vec<Value> = serde_json::from_str(&sh_out(&format!("systemctl --user list-unit-files --no-legend --output=json '{pat}'"))?).map_err(Error::input)?;
+    let mut cells: Vec<FleetCell> = loaded
+        .iter()
+        .map(|r| {
+            let unit = r["unit"].as_str().unwrap_or("").to_string();
+            let name = unit.trim_end_matches(".service").to_string();
+            let active = r["active"].as_str().unwrap_or("").to_string();
+            let sub = r["sub"].as_str().unwrap_or("").to_string();
+            let healthy = active == "active" && sub == "running";
+            FleetCell { name, unit, active, sub, healthy }
+        })
+        .collect();
+    for f in &files {
+        let unit = f["unit_file"].as_str().unwrap_or("").to_string();
+        if !unit.ends_with(".service") || unit.contains('@') || cells.iter().any(|c| c.unit == unit) {
+            continue;
+        }
+        let name = unit.trim_end_matches(".service").to_string();
+        cells.push(FleetCell { name, unit, active: "inactive".into(), sub: "dead".into(), healthy: false });
+    }
+    cells.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(Fleet { at: shop_chain::now(), source: format!("systemd --user {pat}"), cells, more: Value::Null })
+}
+
+fn restart(unit: &str) -> Result<(bool, String)> {
+    let cmd = std::env::var("SEVEN_FLEET_RESTART_CMD").unwrap_or_else(|_| "systemctl --user restart '{unit}'".into());
+    let ok = std::process::Command::new("sh").args(["-c", &cmd.replace("{unit}", unit)]).status().map(|s| s.success()).unwrap_or(false);
+    let after = sh_out(&format!("systemctl --user is-active '{unit}' || true")).unwrap_or_default().trim().to_string();
+    Ok((ok, after))
+}
+
+impl<'a> FleetRead<'a> {
+    /// Read the fleet once for this request (a replay sees the same snapshot).
+    pub async fn snapshot(self) -> Result<Fleet> {
+        let v = self.cx.step("fleet.snapshot", || async { serde_json::to_value(read_fleet()?).map_err(Error::input) }).await?;
+        serde_json::from_value(v).map_err(Error::input)
+    }
+    /// Apply one change. Only `Restart` of a cell the current snapshot lists; the result is an audit row.
+    pub fn apply(self, c: FleetChange) -> FleetApply<'a> {
+        FleetApply { cx: self.cx, change: c }
+    }
+}
+
+pub struct FleetApply<'a> {
+    cx: &'a Cx,
+    change: FleetChange,
+}
+
+impl<'a> FleetApply<'a> {
+    /// The change is always written to the audit stream; `.audit()` says so at the call site.
+    pub fn audit(self) -> Self {
+        self
+    }
+}
+
+impl<'a> IntoFuture for FleetApply<'a> {
+    type Output = Result<Applied>;
+    type IntoFuture = Fut<'a, Applied>;
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let FleetChange::Restart { cell } = &self.change else {
+                return Err(Error::Input(format!("NotYet: only Restart is applied in this build, not {:?}", self.change)));
+            };
+            let change = self.change.clone();
+            let cell = cell.clone();
+            let v = self
+                .cx
+                .step("fleet.restart", || async move {
+                    let f = read_fleet()?;
+                    let c = f.cells.iter().find(|c| c.name == cell || c.unit == cell).ok_or_else(|| Error::Input(format!("no cell {cell} in the fleet snapshot")))?;
+                    let t0 = std::time::Instant::now();
+                    let (ok, active_after) = restart(&c.unit)?;
+                    let a = Applied { change, unit: c.unit.clone(), ok, active_after, ms: t0.elapsed().as_millis() as u64 };
+                    serde_json::to_value(a).map_err(Error::input)
+                })
+                .await?;
+            serde_json::from_value(v).map_err(Error::input)
+        })
     }
 }

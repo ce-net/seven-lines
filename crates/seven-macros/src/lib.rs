@@ -4,7 +4,10 @@
 //!   scope and generates `fn main`, which runs the cell (serve a replica, call it, `up`, prove).
 //! - `#[record(cell = orders)]` on a struct: serde, `Clone`, `Debug` and the `Record` binding to the cell.
 //! - `#[op(cap = "orders.place")]` on `async fn op(cx: Cx, arg: T) -> Result<R>`: registers the op; the replica
-//!   runs it only for a capability chain holding that right.
+//!   runs it only for a capability chain holding that right. `grant = Passkey` also needs a one-use owner grant
+//!   bound to the caller and to this exact input.
+//! - `home = Device` on `#[cell]`: one replica, on one device (`replicas = 1` is then the only allowed count).
+//! - `skill = "..."` on `#[cell]`: the text `describe` hands to an agent.
 //!
 //! Every macro writes code you could write by hand against the `seven` crate.
 use proc_macro::TokenStream;
@@ -70,10 +73,19 @@ pub fn cell(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
     let Some(name) = args.str("name") else { return err(Span::call_site(), "#[cell] needs name = \"...\"") };
     let version = args.int("version").unwrap_or(1) as u32;
-    let replicas = args.int("replicas").unwrap_or(1) as u32;
-    if replicas < 3 || replicas % 2 == 0 {
+    let device = match args.str("home").as_deref() {
+        None | Some("Fleet") => false,
+        Some("Device") => true,
+        Some(_) => return err(Span::call_site(), "home is Fleet (the default) or Device"),
+    };
+    let replicas = args.int("replicas").unwrap_or(if device { 1 } else { 3 }) as u32;
+    if device && replicas != 1 {
+        return err(Span::call_site(), "home = Device means replicas = 1: the cell is that one device's own and cannot be placed on a second");
+    }
+    if !device && (replicas < 3 || replicas % 2 == 0) {
         return err(Span::call_site(), "replicas must be odd and at least 3 (3, 5, 7): a majority must survive the loss of any one");
     }
+    let home = if device { quote!(Device) } else { quote!(Fleet) };
     let skill = args.str("skill").unwrap_or_default();
     let (rt, _) = runtime();
     let item = Ts2::from(item);
@@ -82,7 +94,7 @@ pub fn cell(attr: TokenStream, item: TokenStream) -> TokenStream {
         use #rt::prelude::*;
         #item
         fn main() {
-            #rt::run(#rt::CellDef { name: #name, version: #version, replicas: #replicas, skill: #skill })
+            #rt::run(#rt::CellDef { name: #name, version: #version, replicas: #replicas, skill: #skill, home: #rt::Home::#home })
         }
     }
     .into()
@@ -129,6 +141,11 @@ pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error().into(),
     };
     let Some(cap) = args.str("cap") else { return err(Span::call_site(), "#[op] needs cap = \"<cell>.<right>\"") };
+    let grant = match args.str("grant").as_deref() {
+        None => quote!(None),
+        Some("Passkey") => quote!(Passkey),
+        Some(_) => return err(Span::call_site(), "grant is Passkey (or left out)"),
+    };
     let f = parse_macro_input!(item as ItemFn);
     if f.sig.asyncness.is_none() {
         return err(f.sig.ident.span(), "an op is an async fn");
@@ -157,7 +174,7 @@ pub fn op(attr: TokenStream, item: TokenStream) -> TokenStream {
             })
         }
         #rt::inventory::submit! {
-            #rt::OpDef { name: #name, cap: #cap, input: stringify!(#in_ty), call: #call }
+            #rt::OpDef { name: #name, cap: #cap, input: stringify!(#in_ty), grant: #rt::Grant::#grant, call: #call }
         }
     }
     .into()

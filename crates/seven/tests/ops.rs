@@ -1,7 +1,7 @@
 //! In-process: one replica (a majority of one), real chains, the op table the macros register.
 use seven::node::{op_code, signed_body, AiBackend, Node};
 use seven::prelude::*;
-use seven::CellDef;
+use seven::{CellDef, Home};
 use serde_json::{json, Value};
 use shop_chain::{Caveats, Chain, Holder, Identity};
 use std::sync::Arc;
@@ -33,7 +33,7 @@ async fn keep(cx: Cx, i: Item) -> Result<AuditReceipt> {
     cx.twin().put(&i).audit(&i.sku).await
 }
 
-const DEF: CellDef = CellDef { name: "shop", version: 1, replicas: 3, skill: "" };
+const DEF: CellDef = CellDef { name: "shop", version: 1, replicas: 3, skill: "", home: Home::Fleet };
 
 /// Three replicas on loopback in this process; the answer is the elected leader.
 async fn node(owner: &Identity) -> Arc<Node> {

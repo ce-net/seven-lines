@@ -19,7 +19,8 @@ pub enum Msg {
     Vote { req: VoteReq },
     Append { req: AppendReq<Entry> },
     /// `body` is the op's input as JSON text: the exact bytes the proof signs.
-    Call { op: String, key: String, body: String, auth: Auth },
+    /// `grant`: for a `grant = Passkey` op, the owner's one-link grant for this caller and this exact body.
+    Call { op: String, key: String, body: String, auth: Auth, #[serde(default, skip_serializing_if = "Option::is_none")] grant: Option<shop_chain::Chain> },
     Status,
     /// The applied state (ledger, done, audit, twin) for proofs; needs `<cell>:read`.
     Dump { auth: Auth },
